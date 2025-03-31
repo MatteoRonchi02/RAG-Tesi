@@ -7,12 +7,30 @@ from langchain_community.document_loaders import (
 )
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_ollama import OllamaLLM
+from langchain_huggingface import HuggingFaceEndpoint
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+import warnings
 
-# Caricamento del modello locale con LlamaCpp
-llm = OllamaLLM(model="mistral")
+# Ignora i FutureWarning, problema non bloccante ma da risolvere
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+
+# Recupera il token in modo sicuro dall'ambiente
+HUGGINGFACEHUB_API_TOKEN = os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+if not HUGGINGFACEHUB_API_TOKEN:
+    raise ValueError("Il token HuggingFace deve essere impostato nella variabile HUGGINGFACEHUB_API_TOKEN")
+
+
+# Caricamento del modello da Hugging Face.
+llm = HuggingFaceEndpoint(
+    repo_id="tiiuae/falcon-7b-instruct",
+    task="text-generation",
+    temperature=0.3, #creatività del modello, va da 0 a 1
+    model_kwargs={"max_length": 512},
+    huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
+)
 
 # Directory della knowledge base
 knowledge_base_dir = 'knowledge_base'
@@ -45,31 +63,73 @@ documents = load_documents(knowledge_base_dir)
 
 # Suddivisione in chunk
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,
-    chunk_overlap=100
+    chunk_size= 50, #lunghezza di caratteri del chunk
+    chunk_overlap = 0 # caratteri ripetuti dal chunk precedente
 )
+
 docs = text_splitter.split_documents(documents)
 
 # Creazione degli embedding
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 vectorstore = FAISS.from_documents(docs, embeddings)
 
+
+# Creazione del template del prompt
+# È un prompt di prova, andrà adattato alle nostre esigienze 
+prompt_template = PromptTemplate(
+    input_variables=["query", "context"],
+    template="Answer the following question using the context provided, in case the content does not help you answer by writing \"I don't have the necessary information to answer\":\n"
+             "Question: {query}"
+             "Context: {context}"
+)
+
+# Genera il prompt formattato
+def generate_prompt(query, relevant_doc):
+    # Recupera il contenuto dei documenti rilevanti come contesto, per adesso passo solo il primo chunk più simile
+    #context = "\n".join([doc.page_content for doc in relevant_docs])
+    context = relevant_doc.page_content if relevant_doc else "No context found."
+    return prompt_template.format(query=query, context=context)
+
 # Creazione della pipeline RAG
+retriever = vectorstore.as_retriever()
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="stuff",
-    retriever=vectorstore.as_retriever()
+    retriever=retriever
 )
 
 # Interfaccia da terminale
-print("\n🔹 RAG con Mistral per il rilevamento di Security Smell 🔹")
-print("Scrivi la tua domanda (oppure 'exit' per uscire).")
-
+print("\n RAG with Tiiuae for Security Smell detection ")
+print(" Write your question (or ‘exit’ to exit).")
 while True:
-    query = input("\nInserisci domanda: ")
+    query = input("\nInsert question: ")
     if query.lower() in ["exit", "quit", "esci"]:
-        print("Chiusura programma.")
+        print("Exit program.")
         break
+    
+    # Recupera i documenti più rilevanti con i punteggi di similarità
+    relevant_docs = retriever.invoke(query)  
 
-    response = qa_chain.run(query)
-    print("\n🤖 Risposta:\n", response)
+    # Prende solo il primo documento rilevante come context
+    if relevant_docs:  # Verifica che ci siano documenti rilevanti
+        first_relevant_doc = relevant_docs[0]
+    else:
+        first_relevant_doc = ""  # Nel caso in cui non ci siano documenti rilevanti
+    
+    # Mostra il primo chunk più simile
+    print("\n First most similar chunk found:")
+    if relevant_docs:
+        snippet = relevant_docs[0].page_content.strip().replace("\n", " ")
+        print(f"--- Chunk 1 ---\n{snippet}\n")
+    else:
+        print("No relevant documents found.\n")
+
+    # Genera la risposta finale con il QA chain
+    prompt = generate_prompt(query, first_relevant_doc)
+
+    # Mostra il prompt in output, parte di codice di prova (poi da cancellare)
+    #print("\n🔍 Prompt generato:")
+    #print(prompt)
+
+    response = qa_chain.invoke({"query": query, "context": prompt}) 
+    print("\n Answer:\n", response['result'])
