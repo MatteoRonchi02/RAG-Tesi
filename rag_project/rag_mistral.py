@@ -1,4 +1,5 @@
 import os
+import json
 from langchain_community.document_loaders import (
     UnstructuredWordDocumentLoader,
     UnstructuredPDFLoader,
@@ -11,6 +12,7 @@ from langchain_huggingface import HuggingFaceEndpoint
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
+from langchain.schema import Document  # Importa la classe Document
 import warnings
 
 # Ignora i FutureWarning, problema non bloccante ma da risolvere
@@ -41,8 +43,23 @@ LOADER_MAPPING = {
     ".md": UnstructuredMarkdownLoader,
     ".txt": TextLoader,
     ".docx": UnstructuredWordDocumentLoader,
-    ".pdf": UnstructuredPDFLoader
+    ".pdf": UnstructuredPDFLoader,
+    ".json": None
 }
+
+def load_json_documents(file_path):
+    """Carica e processa un documento JSON."""
+    with open(file_path, 'r', encoding='utf-8') as file:
+        data = json.load(file)
+    
+    # Crea un'unica stringa concatenando tutti i campi rilevanti
+    content = (
+        f"Name Small: {data['name_small']}\n"
+        f"Definition: {data['definition']}\n"
+        f"How to Find: {' '.join(data['how_find'])}\n"
+        f"Example: {data['example']}\n"
+    )
+    return Document(page_content=content)
 
 def load_documents(directory):
     """Carica tutti i documenti da una cartella, indipendentemente dal formato."""
@@ -52,9 +69,13 @@ def load_documents(directory):
         ext = os.path.splitext(filename)[-1].lower()
         
         if ext in LOADER_MAPPING:
-            loader_cls = LOADER_MAPPING[ext]
-            loader = loader_cls(file_path)
-            documents.extend(loader.load())  # Carica il contenuto del file
+            if ext == ".json":
+                document_content = load_json_documents(file_path)
+                documents.append(document_content)
+            else:
+                loader_cls = LOADER_MAPPING[ext]
+                loader = loader_cls(file_path)
+                documents.extend(loader.load())  # Carica il contenuto del file
 
     return documents
 
@@ -63,7 +84,7 @@ documents = load_documents(knowledge_base_dir)
 
 # Suddivisione in chunk
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size= 50, #lunghezza di caratteri del chunk
+    chunk_size= 10000, #lunghezza di caratteri del chunk
     chunk_overlap = 0 # caratteri ripetuti dal chunk precedente
 )
 
