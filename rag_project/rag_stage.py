@@ -8,6 +8,7 @@ from langchain_community.document_loaders import (
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEndpoint
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
@@ -18,18 +19,17 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 # Recupera il token in modo sicuro dall'ambiente
-HUGGINGFACEHUB_API_TOKEN = os.environ.get("HUGGINGFACEHUB_API_TOKEN")
-if not HUGGINGFACEHUB_API_TOKEN:
-    raise ValueError("Il token HuggingFace deve essere impostato nella variabile HUGGINGFACEHUB_API_TOKEN")
+GEMINI_API_KEY_PRIV = os.environ.get("GEMINI_API_KEY_PRIV")
+if not GEMINI_API_KEY_PRIV:
+    raise ValueError("Il token HuggingFace deve essere impostato nella variabile GEMINI_API_KEY_PRIV")
 
 
 # Caricamento del modello da Hugging Face.
-llm = HuggingFaceEndpoint(
-    repo_id="tiiuae/falcon-7b-instruct",
-    task="text-generation",
-    temperature=0.3, #creatività del modello, va da 0 a 1
-    model_kwargs={"max_length": 512},
-    huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-pro-exp-03-25",   # Puoi anche usare "gemini-1.5-flash" se preferisci
+    google_api_key=GEMINI_API_KEY_PRIV,
+    temperature=0.1,
+    max_tokens=512
 )
 
 # Directory della knowledge base
@@ -42,7 +42,7 @@ LOADER_MAPPING = {
     ".txt": TextLoader,
     ".docx": UnstructuredWordDocumentLoader,
     ".pdf": UnstructuredPDFLoader
-}
+} 
 
 def load_documents(directory):
     """Carica tutti i documenti da una cartella, indipendentemente dal formato."""
