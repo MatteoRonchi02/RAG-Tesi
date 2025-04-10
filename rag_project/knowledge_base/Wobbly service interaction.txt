@@ -1,17 +1,128 @@
-#NAME OF ARCHITECTURAL SMELL
-Wobbly Service Interaction 
+# name of architectural smell
+wobbly service interaction 
 
-#DEFINITION
-This smell occurs when one service (the invoker) uses up the functionality 
+# definition
+this smell occurs when one service (the invoker) uses up the functionality 
 of another service (the invoked) without adequately handling the case when the 
-latter fails or does not respond. Consequently, a failure in the invoked service 
+latter fails or does not respond. consequently, a failure in the invoked service 
 can propagate to the invoker, triggering a cascade of failures and compromising 
 the isolation of failures typical of a good microservice architecture. 
 
-#EXAMPLE
-Let us imagine Service A invoking Service B to get critical data. 
-If B becomes inaccessible (e.g. because of a crash or network problems) 
-and A hasn't implemented fallback mechanisms (timeout or circuit breaker), 
-A will stand by waiting for a response or will fail in turn. 
-This knock-on effect can lead to a cascade of failures that negatively 
-impacts the entire application. 
+# example 1
+a service calls another service without implementing a timeout, causing the caller to hang indefinitely if the callee does not respond.
+
+import requests
+def call_service():
+    try:
+        response = requests.get("http://service-b/api/v1/resource")
+        if response.status_code == 200:
+            print("success:", response.json())
+        else:
+            print("error:", response.status_code)
+    except requests.exceptions.RequestException as e:
+        print("service call failed:", e)
+call_service()
+
+# example 2
+a java application invokes another service without using a circuit breaker, leading to cascading failures when the callee is unavailable.
+
+import java.net.HttpURLConnection;
+import java.net.URL;
+public class Example {
+    public static void main(String[] args) {
+        try {
+            URL url = new URL("http://service-b/api/v1/resource");
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                System.out.println("success");
+            } else {
+                System.out.println("error: " + responseCode);
+            }
+        } catch (Exception e) {
+            System.out.println("service call failed: " + e.getMessage());
+        }
+    }
+}
+
+# example 3
+a node.js service calls another service without handling retries, causing the caller to fail immediately if the callee is temporarily unavailable.
+
+const axios = require('axios');
+async function callService() {
+    try {
+        const response = await axios.get('http://service-b/api/v1/resource');
+        console.log('success:', response.data);
+    } catch (error) {
+        console.error('service call failed:', error.message);
+    }
+}
+callService();
+
+# example 4
+a service uses grpc to call another service but does not implement a retry mechanism, leading to failures when the callee is temporarily unreachable.
+
+package main
+import (
+    "context"
+    "log"
+    "time"
+    "google.golang.org/grpc"
+    pb "example.com/proto"
+)
+func main() {
+    conn, err := grpc.Dial("service-b:50051", grpc.WithInsecure())
+    if err != nil {
+        log.Fatalf("failed to connect: %v", err)
+    }
+    defer conn.Close()
+    client := pb.NewExampleServiceClient(conn)
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+    defer cancel()
+    response, err := client.ExampleMethod(ctx, &pb.ExampleRequest{Message: "hello"})
+    if err != nil {
+        log.Fatalf("service call failed: %v", err)
+    }
+    log.Printf("response: %s", response.Message)
+}
+
+# example 5
+a php application calls another service without handling timeouts, causing the caller to hang indefinitely if the callee does not respond.
+
+<?php
+$endpoint = "http://service-b/api/v1/resource";
+$options = array(
+    'http' => array(
+        'method'  => 'GET',
+    ),
+);
+$context  = stream_context_create($options);
+$result = file_get_contents($endpoint, false, $context);
+if ($result === FALSE) {
+    echo "service call failed";
+} else {
+    echo "success: " . $result;
+}
+?>
+
+# example 6 
+a service calls a database without implementing a fallback mechanism, causing the service to fail if the database is unavailable.
+
+import psycopg2
+try:
+    connection = psycopg2.connect(
+        host="database-service",
+        database="example_db",
+        user="user",
+        password="password"
+    )
+    cursor = connection.cursor()
+    cursor.execute("SELECT * FROM example_table")
+    print(cursor.fetchall())
+except psycopg2.OperationalError as e:
+    print("database connection failed:", e)
+finally:
+    if 'connection' in locals() and connection:
+        connection.close()

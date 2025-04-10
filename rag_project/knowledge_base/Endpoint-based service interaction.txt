@@ -1,17 +1,111 @@
-#NAME OF ARCHITECTURAL SMELL
-Endpoint-based service interaction 
+# name of architectural smell
+endpoint-based service interaction 
 
-#DEFINITION
-It occurs when a service (x) directly invokes another service (y) using a 
+# definition
+it occurs when a service (x) directly invokes another service (y) using a 
 hardcoded endpoint (such as a fixed IP address and port) instead of employing 
 dynamic discovery or routing mechanisms (such as service registry, load balancer, 
-or message broker). This behaviour makes the application fragile, since if service
+or message broker). this behaviour makes the application fragile, since if service
 y is scaled or modified (with new instances on different addresses), service x
 will continue to reference the old endpoint, thus compromising the reachability 
 of the new instances. 
 
-#EXAMPLE
-The Service A sends an HTTP request to Service B using the URL 
-‘http://192.168.1.100:8080/api/v1/resource’. If Service B is scaled up and new 
-instances are started on different addresses, Service A will not be able to reach 
-them because it continues to refer to the hardcoded address ‘192.168.1.100:8080’. 
+# example 1
+a service uses a hardcoded endpoint to send http requests, making it difficult to scale or change the endpoint.
+
+import response
+url = "http://192.168.1.100:8080/api/v1/resource"
+response = requests.get(url)
+if response.status_code == 200:
+    print("Success:", response.json())
+else:
+    print("Error:", response.status_code)
+
+# example 2
+a java application uses a fixed endpoint to send rest api requests, making it inflexible to changes in the service's location.
+
+import java.net.HttpURLConnection;
+import java.net.URL;
+public class example {
+    public static void main(String[] args) throws Exception {
+        String endpoint = "http://192.168.1.100:8080/api/v1/resource";
+        URL url = new URL(endpoint);
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("GET");
+
+        int responseCode = connection.getResponseCode();
+        if (responseCode == 200) 
+            System.out.println("success");
+        else 
+            System.out.println("error: " + responseCode);
+    }
+}
+
+# example 3
+a service uses a hardcoded endpoint to connect to a rabbitmq broker, making it difficult to adapt to changes in the broker's location.
+
+import pika
+connection = pika.BlockingConnection(pika.ConnectionParameters('192.168.1.100'))
+channel = connection.channel()
+channel.queue_declare(queue='example_queue')
+channel.basic_publish(exchange='', routing_key='example_queue', body='hello world')
+print("message sent")
+connection.close()
+
+# example 4
+a service uses a hardcoded endpoint to connect to a redis cache, making it difficult to reconfigure or scale the caching layer.
+
+import redis
+cache = redis.StrictRedis(host='192.168.1.100', port=6379, db=0)
+cache.set('key', 'value')
+print(cache.get('key'))
+
+# example 5
+a c# application uses a fixed endpoint to call a web service, making it fragile if the service's address changes.
+
+using System;
+using System.Net.Http;
+using System.Threading.Tasks;
+class Program {
+    static async Task Main(string[] args) {
+        string url = "http://192.168.1.100:8080/api/v1/resource";
+        using HttpClient client = new HttpClient();
+        HttpResponseMessage response = await client.GetAsync(url);
+
+        if (response.IsSuccessStatusCode) {
+            Console.WriteLine("success: " + await response.Content.ReadAsStringAsync());
+        } else {
+            Console.WriteLine("error: " + response.StatusCode);
+        }
+    }
+}
+
+# example 6
+a service uses a hardcoded endpoint to connect to an elasticsearch cluster, making it difficult to scale or reconfigure the cluster.
+from elasticsearch import Elasticsearch
+
+es = Elasticsearch(['http://192.168.1.100:9200'])
+es.index(index='example_index', id=1, document={'key': 'value'})
+print(es.get(index='example_index', id=1))
+
+# example 7 
+a php application uses a fixed endpoint to send requests to a payment gateway, making it inflexible to endpoint changes.
+
+<?php
+$endpoint = "http://192.168.1.100:8080/payment";
+$data = array("amount" => 100, "currency" => "usd");
+$options = array(
+    'http' => array(
+        'header'  => "Content-type: application/json\r\n",
+        'method'  => 'POST',
+        'content' => json_encode($data),
+    ),
+);
+$context  = stream_context_create($options);
+$result = file_get_contents($endpoint, false, $context);
+if ($result === FALSE) {
+    echo "error";
+} else {
+    echo "success: " . $result;
+}
+?>
