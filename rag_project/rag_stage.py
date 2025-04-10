@@ -28,7 +28,7 @@ if not GEMINI_API_KEY_PRIV:
 
 # Caricamento del modello da Hugging Face.
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-pro-exp-03-25",   
+    model="gemini-2.0-flash",   
     google_api_key=GEMINI_API_KEY_PRIV,
     temperature=0.1, # È il grado di casualità nella generazione del testo
     max_tokens=2048
@@ -115,8 +115,8 @@ prompt_template = PromptTemplate(
             """Instructions:
             1. The Question may include either source code excerpts or a file path pointing to a microservices application.
             2. Analyze the Question carefully and use any provided file path to retrieve and review the relevant source code.
-            3. Combine the information from the Question, the Context, and your internal expertise as a security smell expert in microservices applications to generate a detailed and comprehensive response.
-            4. Your answer should include a thorough analysis of potential security smells along with practical insights and recommendations.
+            3. Combine the information from the Question, the Context, and your internal expertise as a TYPE smell expert in microservices applications to generate a detailed and comprehensive response.
+            4. Your answer should include a thorough analysis of potential TYPE smells along with practical insights and recommendations.
             5. If the provided Context and file content do not contain sufficient information to deliver an accurate answer, please respond with: "I don't have the necessary information to answer".
                 
             """
@@ -157,28 +157,34 @@ while True:
         break
     
     # Traduzione da italiano a inglese
-    query_translated = GoogleTranslator(source='auto', target='en').translate(query)
+    #query_translated = GoogleTranslator(source='auto', target='en').translate(query)
+    #print(f"\nTranslated query: {query_translated}")
+    results = vectorstore.similarity_search_with_score(query, k=5) # kk = umero di chunk da recuperare
+    valid_results = []
 
-    results = vectorstore.similarity_search_with_score(query_translated, k=5) # kk = umero di chunk da recuperare
-    
     if results:
-        print("\nChunk found with similarity percentage:")
+        # Filtra i risultati per mostrare solo quelli con una percentuale di similarità positiva
         for i, (doc, score) in enumerate(results, start=1):
-            # Se score è una distanza, ipotizziamo che 0 corrisponda al 100% di similarità e 1 a 0%
-            similarity_pct = score
-            #similarity_pct = max(0, 100 - (score * 100))
-            snippet = doc.page_content.strip().replace("\n", " ")
-            print(f"--- Chunk {i} ---")
-            print(f"Similarity: {similarity_pct:.1f}%")
-            print(f"Context: {snippet}\n")
-        # Usa il primo chunk per identificare il file di origine
-        best_doc = results[0][0]
-        source_file = best_doc.metadata.get("source")
-        print(f"Aggregating full context from file: {source_file}\n")
-        full_context = aggregate_full_context(source_file)
-    else:
-        full_context = None
-        print("No relevant documents found.\n")
+            similarity_pct = max(0, 100 - (score * 100))
+            if similarity_pct > 0:
+                valid_results.append((doc, similarity_pct))
+
+        if valid_results:
+            print("\nChunk found with similarity percentage:")
+            for i, (doc, similarity_pct) in enumerate(valid_results, start=1):
+                
+                snippet = doc.page_content.strip().replace("\n", " ")
+                print(f"--- Chunk {i} ---")
+                print(f"Similarity: {similarity_pct:.1f}%")
+                print(f"Context: {snippet}\n")
+            # Usa il primo chunk per identificare il file di origine
+            best_doc = results[0][0]
+            source_file = best_doc.metadata.get("source")
+            print(f"Aggregating full context from file: {source_file}\n")
+            full_context = aggregate_full_context(source_file)
+        else:
+            full_context = None
+            print("No relevant documents found.\n")
 
     # Genera la risposta finale con il QA chain
     prompt = generate_prompt(query, full_context)

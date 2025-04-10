@@ -1,0 +1,17 @@
+#NAME OF ARCHITECTURAL SMELL
+Wobbly Service Interaction 
+
+#DEFINITION
+This smell occurs when one service (the invoker) uses up the functionality 
+of another service (the invoked) without adequately handling the case when the 
+latter fails or does not respond. Consequently, a failure in the invoked service 
+can propagate to the invoker, triggering a cascade of failures and compromising 
+the isolation of failures typical of a good microservice architecture. 
+
+#EXAMPLE
+Let us imagine Service A invoking Service B to get critical data. 
+If B becomes inaccessible (e.g. because of a crash or network problems) 
+and A hasn't implemented fallback mechanisms (timeout or circuit breaker), 
+A will stand by waiting for a response or will fail in turn. 
+This knock-on effect can lead to a cascade of failures that negatively 
+impacts the entire application. 

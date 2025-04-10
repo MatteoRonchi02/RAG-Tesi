@@ -1,0 +1,17 @@
+#NAME OF ARCHITECTURAL SMELL
+Endpoint-based service interaction 
+
+#DEFINITION
+It occurs when a service (x) directly invokes another service (y) using a 
+hardcoded endpoint (such as a fixed IP address and port) instead of employing 
+dynamic discovery or routing mechanisms (such as service registry, load balancer, 
+or message broker). This behaviour makes the application fragile, since if service
+y is scaled or modified (with new instances on different addresses), service x
+will continue to reference the old endpoint, thus compromising the reachability 
+of the new instances. 
+
+#EXAMPLE
+The Service A sends an HTTP request to Service B using the URL 
+‘http://192.168.1.100:8080/api/v1/resource’. If Service B is scaled up and new 
+instances are started on different addresses, Service A will not be able to reach 
+them because it continues to refer to the hardcoded address ‘192.168.1.100:8080’. 
