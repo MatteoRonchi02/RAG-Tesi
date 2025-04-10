@@ -13,6 +13,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 import warnings
+from deep_translator import GoogleTranslator
 
 # Ignora i FutureWarning, problema non bloccante ma da risolvere
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -21,15 +22,15 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # Recupera il token in modo sicuro dall'ambiente
 GEMINI_API_KEY_PRIV = os.environ.get("GEMINI_API_KEY_PRIV")
 if not GEMINI_API_KEY_PRIV:
-    raise ValueError("Il token HuggingFace deve essere impostato nella variabile GEMINI_API_KEY_PRIV")
+    raise ValueError("The HuggingFace token must be set in the variable GEMINI_API_KEY_PRIV.")
 
 
 # Caricamento del modello da Hugging Face.
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-pro-exp-03-25",   # Puoi anche usare "gemini-1.5-flash" se preferisci
+    model="gemini-2.5-pro-exp-03-25",   
     google_api_key=GEMINI_API_KEY_PRIV,
-    temperature=0.1,
-    max_tokens=512
+    temperature=0.1, # È il grado di casualità nella generazione del testo
+    max_tokens=2048
 )
 
 # Directory della knowledge base
@@ -59,29 +60,29 @@ def load_documents(directory):
     return documents
 
 # Caricamento documenti da più formati
-documents = load_documents(knowledge_base_dir)
-
-# Suddivisione in chunk
-text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size= 50, #lunghezza di caratteri del chunk
-    chunk_overlap = 0 # caratteri ripetuti dal chunk precedente
-)
-
-docs = text_splitter.split_documents(documents)
+documents = load_documents(knowledge_base_dir) 
 
 # Creazione degli embedding
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-vectorstore = FAISS.from_documents(docs, embeddings)
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+vectorstore = FAISS.from_documents(documents, embeddings)
 
 
 # Creazione del template del prompt
 # È un prompt di prova, andrà adattato alle nostre esigienze 
 prompt_template = PromptTemplate(
     input_variables=["query", "context"],
-    template="Answer the following question using the context provided, in case the content does not help you answer by writing \"I don't have the necessary information to answer\":\n"
-             "Question: {query}"
+    template="Question: {query}"
              "Context: {context}"
-)
+            """Instructions:
+                1. The Question may include either source code excerpts or a file path pointing to a microservices application.
+                2. Analyze the Question carefully and use any provided file path to retrieve and review the relevant source code.
+                3. Combine the information from the Question, the Context, and your internal expertise as a security smell expert in microservices applications to generate a detailed and comprehensive response.
+                4. Your answer should include a thorough analysis of potential TYPE smells along with practical insights and recommendations.
+                5. Answer must have the same language of question.
+                6. If the provided Context and file content do not contain sufficient information to deliver an accurate answer, please respond with: "I don't have the necessary information to answer".
+
+            Answer:"""
+) #TYPE = scrivi il tipo di smell che ti interessa
 
 # Genera il prompt formattato
 def generate_prompt(query, relevant_doc):
@@ -99,7 +100,7 @@ qa_chain = RetrievalQA.from_chain_type(
 )
 
 # Interfaccia da terminale
-print("\n RAG with Tiiuae for Security Smell detection ")
+print("\n RAG with Gemini for Security Smell detection , Language English")
 print(" Write your question (or ‘exit’ to exit).")
 while True:
     query = input("\nInsert question: ")
@@ -107,21 +108,26 @@ while True:
         print("Exit program.")
         break
     
-    # Recupera i documenti più rilevanti con i punteggi di similarità
-    relevant_docs = retriever.invoke(query)  
+    # Traduzione da italiano a inglese
+    query_translated = GoogleTranslator(source='auto', target='en').translate(query)
 
-    # Prende solo il primo documento rilevante come context
-    if relevant_docs:  # Verifica che ci siano documenti rilevanti
-        first_relevant_doc = relevant_docs[0]
-    else:
-        first_relevant_doc = ""  # Nel caso in cui non ci siano documenti rilevanti
+    k = 5  # Numero di chunk da recuperare
+    results = vectorstore.similarity_search_with_score(query_translated, k=k)
     
-    # Mostra il primo chunk più simile
-    print("\n First most similar chunk found:")
-    if relevant_docs:
-        snippet = relevant_docs[0].page_content.strip().replace("\n", " ")
-        print(f"--- Chunk 1 ---\n{snippet}\n")
+    if results:
+        print("\nChunk found with similarity percentage:")
+        for i, (doc, score) in enumerate(results, start=1):
+            # Se score è una distanza, ipotizziamo che 0 corrisponda al 100% di similarità e 1 a 0%
+            similarity_pct = score
+            #similarity_pct = max(0, 100 - (score * 100))
+            snippet = doc.page_content.strip().replace("\n", " ")
+            print(f"--- Chunk {i} ---")
+            print(f"Similarity: {similarity_pct:.1f}%")
+            print(f"Context: {snippet}\n")
+        # Usa il primo chunk come contesto per la risposta
+        first_relevant_doc = results[0][0]
     else:
+        first_relevant_doc = None
         print("No relevant documents found.\n")
 
     # Genera la risposta finale con il QA chain
