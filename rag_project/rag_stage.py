@@ -43,7 +43,8 @@ LOADER_MAPPING = {
     ".md": UnstructuredMarkdownLoader,
     ".txt": TextLoader,
     ".docx": UnstructuredWordDocumentLoader,
-    ".pdf": UnstructuredPDFLoader
+    ".pdf": UnstructuredPDFLoader,
+    ".java": TextLoader
 } 
 
 def split_document_by_sections(file_path):
@@ -98,6 +99,21 @@ def load_documents(directory):
             documents.extend(docs)
 
     return documents
+def load_documents_path(directory):
+    """Carica tutti i documenti dalla directory e dalle sue sottocartelle, indipendentemente dal formato."""
+    documents = []
+    # os.walk restituisce una tupla (percorso_corrente, lista_cartelle, lista_file)
+    for root, dirs, files in os.walk(directory):
+        for filename in files:
+            file_path = os.path.join(root, filename)
+            ext = os.path.splitext(filename)[-1].lower()
+            if ext in LOADER_MAPPING:
+                loader_cls = LOADER_MAPPING[ext]
+                # Puoi gestire qui eventuali formati specifici se necessario
+                loader = loader_cls(file_path)
+                docs = loader.load()
+                documents.extend(docs)
+    return documents
 
 # Caricamento documenti da più formati
 documents = load_documents(knowledge_base_dir) 
@@ -115,8 +131,8 @@ prompt_template = PromptTemplate(
             """Instructions:
             1. The Question may include either source code excerpts or a file path pointing to a microservices application.
             2. Analyze the Question carefully and use any provided file path to retrieve and review the relevant source code.
-            3. Combine the information from the Question, the Context, and your internal expertise as a TYPE smell expert in microservices applications to generate a detailed and comprehensive response.
-            4. Your answer should include a thorough analysis of potential TYPE smells along with practical insights and recommendations.
+            3. Combine the information from the Question, the Context, and your internal expertise as a security smell expert in microservices applications to generate a detailed and comprehensive response.
+            4. Your answer should include a thorough analysis of potential security smells along with practical insights and recommendations.
             5. If the provided Context and file content do not contain sufficient information to deliver an accurate answer, please respond with: "I don't have the necessary information to answer".
                 
             """
@@ -136,8 +152,12 @@ def generate_prompt(query, relevant_context):
 
 def aggregate_full_context(source_file):
     """ Dato il percorso di un file, carica e restituisce il contenuto completo."""
-    with open(source_file, "r", encoding="utf-8") as f:
-        return f.read()
+    try:
+        with open(source_file, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        print(f"Errore nella lettura del file {source_file}: {e}")
+        return ""
 
 # Creazione della pipeline RAG
 retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5})
@@ -156,6 +176,17 @@ while True:
         print("Exit program.")
         break
     
+    # Chiedi all'utente se vuole specificare un percorso di una cartella
+    folder_path = input("\nDo you want to specify a folder path for additional context? (Leave empty to skip): ").strip()
+    full_context = ""  # Inizializza il contesto aggregato
+    #if folder_path:
+    #    if os.path.isdir(folder_path):
+    #        print(f"Folder path '{folder_path}' will be included in the question.")
+    #        query += f"\nFolder path: {folder_path}"
+    #    else:
+    #        print("Invalid folder path. Proceeding without adding it to the question.")
+
+
     # Traduzione da italiano a inglese
     #query_translated = GoogleTranslator(source='auto', target='en').translate(query)
     #print(f"\nTranslated query: {query_translated}")
@@ -185,6 +216,20 @@ while True:
         else:
             full_context = None
             print("No relevant documents found.\n")
+
+    # Se l'utente ha fornito un percorso di una cartella, carica e aggrega i documenti aggiuntivi
+    if folder_path:
+        if os.path.isdir(folder_path):
+            print(f"Loading additional context from folder: {folder_path}")
+            additional_docs = load_documents_path(folder_path)
+            if additional_docs:
+                extra_context = "\n".join([doc.page_content for doc in additional_docs])
+                query += "\n" + extra_context
+            else:
+                print("No documents loaded from the specified folder.")
+        else:
+            print("Invalid folder path provided. Proceeding without additional folder context.")
+
 
     # Genera la risposta finale con il QA chain
     prompt = generate_prompt(query, full_context)
