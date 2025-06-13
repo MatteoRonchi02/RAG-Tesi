@@ -1,0 +1,6 @@
+# NAME OF SECURITY SMELL
+Insufficient Access Control
+# DEFINITION OF SECURITY SMELL
+This security smell occurs when unauthorized users are able to access restricted resources or perform actions beyond their intended permissions. Access control, also known as authorization, is the mechanism by which an application grants or denies access to specific content and functionalities after a user has been authenticated. Insufficient authorization checks mean that even if a user is logged in, the system fails to properly verify whether they should have access to the specific resources or actions they are attempting to reach. This can manifest in various ways, including privilege escalation, where users with limited privileges gain access to higher-level functionalities or data. The consequences of broken access control can be severe, leading to data exposure, unauthorized modifications, or even complete system compromise. If we do not find the implementation of access controls (such as authorization annotations, validation middleware, or security policies) in the source code, it can be inferred that proper implementation of authorization rules is lacking. A focused code review can point out the absence or incorrect implementation of these mechanisms, making this smell deducible directly from the code.
+# EXAMPLE 1
+
