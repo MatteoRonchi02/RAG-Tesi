@@ -1,12 +1,12 @@
 import os
 import re
 import warnings
+import json
 from langchain.docstore.document import Document
 from langchain_community.document_loaders import (
     UnstructuredWordDocumentLoader,
     UnstructuredPDFLoader,
-    TextLoader,
-    UnstructuredMarkdownLoader
+    TextLoader
 )
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -14,6 +14,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 from google.cloud import aiplatform
 from dotenv import load_dotenv
+from langchain.text_splitter import RecursiveCharacterTextSplitter, Language
+from tqdm import tqdm
 
 load_dotenv()
 aiplatform.init(
@@ -25,10 +27,6 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"]=os.getenv("GOOGLE_APPLICATION_CREDE
 
 # Ignora i FutureWarning, problema non bloccante ma da risolvere
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-#GEMINI_API_KEY_PRIV = os.environ.get("GEMINI_API_KEY_PRIV")
-#if not GEMINI_API_KEY_PRIV:
-#    raise ValueError("The Gemini API key must be set in the GEMINI_API_KEY_PRIV environment variable.")
 
 # Caricamento del modello LLM
 try:
@@ -51,67 +49,28 @@ LOADER_MAPPING = {
     ".docx": (UnstructuredWordDocumentLoader, {}),
     ".pdf": (UnstructuredPDFLoader, {}),
     ".java": (TextLoader, {"encoding": "utf-8"}),
-    ".js": (TextLoader, {"encoding": "utf-8"})
+    ".js": (TextLoader, {"encoding": "utf-8"}),
+    ".vue": (TextLoader, {"encoding": "utf-8"}),
+    ".html": (TextLoader, {"encoding": "utf-8"}),
+    "dockerfile": (TextLoader, {"encoding": "utf-8"})
 }
 
-# Divide file in sezioni iniziate con #
-def split_document_by_sections(file_path: str, encoding="utf-8") -> list[Document]:
+# Carica i dati della KB dal formato json
+def load_smell_data(smell_name: str, kb_directory: str) -> dict | None:
+    file_name = f"{smell_name.replace(' ', '_').lower()}.json"
+    file_path = os.path.join(kb_directory, file_name)
+    print(f"\nLoading smell definition from: {file_path}")
     try:
-        with open(file_path, "r", encoding=encoding) as f:
-            text = f.read()
-    except Exception as e:
-        print(f"Error in reading the file {file_path}: {e}")
-        return []
-    
-    sections_content = []
-    current_section_text = ""
-    # Divide per righe; una linea che inizia con '#' viene considerata l'inizio di una nuova sezione
-    for line in text.splitlines():
-        if line.strip().startswith("#"):
-            if current_section_text: # Salva la sezione precedente se esiste
-                sections_content.append(current_section_text.strip())
-            current_section_text = line + "\n" # Inizia una nuova sezione con l'header
-        else:
-            current_section_text += line + "\n"
-    
-    if current_section_text.strip(): # Aggiungi l'ultima sezione
-        sections_content.append(current_section_text.strip())
-    
-    documents = []
-    for i, section_text in enumerate(sections_content):
-        # serve per avere un header nelle sezioni, non è obbligatorio
-        # header_match = re.search(r'^#\s*(.+)', section_text.splitlines()[0] if section_text else "")
-        # header = header_match.group(1).strip() if header_match else f"Sezione {i+1}"
-        documents.append(Document(page_content=section_text, metadata={"source": file_path})) #, "header": header}))
-    return documents
-
-# Carica e processa tutti i documenti dalla knowledge base principale, solo di tipo .txt
-def load_knowledge_base_documents(directory: str) -> list[Document]:
-    all_documents = []
-    print(f"Uploading documents from the knowledge base: {directory}")
-    for filename in os.listdir(directory):
-        file_path = os.path.join(directory, filename)
-        ext = os.path.splitext(filename)[-1].lower()
-        
-        if ext == ".txt":
-            default_loader_class, default_loader_kwargs = TextLoader, {"encoding": "utf-8"} # Default se .txt non fosse in LOADER_MAPPING (improbabile)
-            loader_class, loader_kwargs = LOADER_MAPPING.get(ext, (default_loader_class, default_loader_kwargs) )
-            print(f"Loading: {filename}")
-            try:
-                docs = split_document_by_sections(file_path, encoding=loader_kwargs.get("encoding", "utf-8"))
-                if docs:
-                    all_documents.extend(docs)
-                    print(f"Uploaded {len(docs)} sections from {filename}")
-                else:
-                    print(f"No document loaded from {filename} (could be empty or splitting error).")
-
-            except Exception as e:
-                print(f"Error during loading or processing of {filename}: {e}")
-        else:
-            print(f"Unsupported file (extension {ext}): {filename}")
-            
-    print(f"Total sections loaded from the knowledge base: {len(all_documents)}\n")
-    return all_documents
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            print("Smell definition loaded successfully.")
+            return data
+    except FileNotFoundError:
+        print(f"ERROR: Knowledge base file not found for '{smell_name}'. Make sure '{file_path}' exists.")
+        return None
+    except json.JSONDecodeError:
+        print(f"ERROR: The file '{file_path}' is not a valid JSON.")
+        return None
 
 #Carica tutti i documenti (interi) da una directory e sottocartelle.
 def load_folder_path_documents(directory: str) -> list[Document]:
@@ -119,10 +78,10 @@ def load_folder_path_documents(directory: str) -> list[Document]:
     print(f"Uploading documents from the chosen {directory} path")
     for root, _, files in os.walk(directory):
         for filename in files:
-            file_path = os.path.join(root, filename)
-            ext = os.path.splitext(filename)[-1].lower()
-            
+            # Controllo per ignorare le estensioni non mappate
+            ext = os.path.splitext(filename)[-1].lower() if os.path.splitext(filename)[-1] else filename.lower()
             if ext in LOADER_MAPPING:
+                file_path = os.path.join(root, filename)
                 loader_class, loader_kwargs = LOADER_MAPPING[ext]
                 print(f"Upload: {file_path} (type: {ext})")
                 try:
@@ -135,47 +94,64 @@ def load_folder_path_documents(directory: str) -> list[Document]:
                         all_documents.extend(docs)
                 except Exception as e:
                     print(f"Error while loading {file_path}: {e}")
+
     print(f"Total documents uploaded by {directory}: {len(all_documents)}\n")
     return all_documents
 
-# --- CREAZIONE VECTORSTORE E RETRIEVER ---
-print("------------Initialization embeddings and vectorstore in progress------------")
-kb_documents = load_knowledge_base_documents(knowledge_base_dir)
+# Server per fare il chunk del codice in base al suo linguaggio
+def get_code_chunks(code_documents: list[Document]) -> list[Document]:
+    print("Splitting source code into manageable chunks...")
+    all_chunks = []
+    # Mappatura delle estensioni al tipo di linguaggio per lo splitter
+    language_map = {
+        ".java": Language.JAVA,
+        ".js": Language.JS,
+        ".html": Language.HTML
+    }
+    
+    # Splitter di default per file non mappati (es. Dockerfile, .vue, .txt)
+    default_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
 
-if not kb_documents:
-    print("WARNING: No documents loaded from the knowledge base. RAG may have no context to rely on.")
-    # Potresti voler gestire questo caso in modo più specifico, es. uscendo o avvisando chiaramente l'utente.
+    for doc in tqdm(code_documents, desc="Splitting source code"):
+        ext = os.path.splitext(doc.metadata["source"])[-1].lower()
+        language = language_map.get(ext)
+        
+        if language:
+            splitter = RecursiveCharacterTextSplitter.from_language(language=language, chunk_size=1000, chunk_overlap=150)
+            chunks = splitter.split_documents([doc])
+        else:
+            # Usa lo splitter di default per Dockerfile, Vue, etc.
+            chunks = default_splitter.split_documents([doc])
+        all_chunks.extend(chunks)
 
-# Usare try-except per robustezza
+    print(f"Source code split into {len(all_chunks)} chunks.")
+    return all_chunks
+
+print("--------------------Initialization embeddings in progress--------------------")
 try:
     embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
-    # Solo se ci sono documenti da indicizzare
-    if kb_documents:
-        vectorstore = FAISS.from_documents(kb_documents, embeddings_model)
-        retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3}) # Recupera i top 3 chunk dalla KB
-        print("---Vectorstore and retriever successfully created from the knowledge base----")
-        print("=============================================================================")
-    else:
-        vectorstore = None
-        retriever = None
-        print("----Vectorstore not created, there aren't documents in the knowledge base----")
-        print("=============================================================================")
+    print("Embeddings model loaded successfully.")
 except Exception as e:
-    raise RuntimeError(f"Error when creating embeddings or vectorstore: {e}")
+    raise RuntimeError(f"Error when creating embeddings model: {e}")
+
+print("=============================================================================")
 
 
-# --- PROMPT TEMPLATE --- DA RIFORMULARE
-prompt_template_str = """Instructions:
-1. You are an expert of Security smells in microservices application.
-2. The 'Context from Provided Folder' is the source code of a microservice application or a snippet of code.
-3. The Question include a Security smell that you will search in the 'Context from Provided Folder'.
-3. Combine the information from the Question and the 'Context from Knowledge Base' to analize the 'Context from Provided Folder' (if any) and answer the Question.
-4. Your answer should include a list of the services you analyzed and a list of the services affected by the security smell entered in the Question and an explanation of the problem, it is possible that none of the services are affected by the smell.
-5. If you identify a security smell relevant to the question, try to show the specific code snippet from the 'Context from Provided Folder' where the smell occurs.
-6. If you don't identify ay security smell any analized services, wrote it under the list of the analied service.
-7. Remember to deeply analyze ALL files uploaded by the  'Context from Provided Folder', if possible even analyze them more than once.
-
-Question: {query}
+# Nuovo prompt, si può migliorare
+prompt_template_str = """nstructions:
+1. You are an expert security auditor. Your task is to analyze specific code snippets for a given security smell.
+2. The 'Smell Definition' provides the official description and remediation strategies for the security vulnerability.
+3. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
+4. Your primary goal is to analyze EACH snippet and determine if it is affected by the defined smell.
+5. Structure your answer as follows:
+   - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
+   - For each analyzed file path, create a section.
+   - Under each file path, list the snippets that ARE VULNERABLE.
+   - For each vulnerable snippet, provide:
+     a. The line of code or block that contains the smell.
+     b. A clear explanation of WHY it is a vulnerability in this context.
+   - If a snippet is NOT vulnerable, you don't need to mention it.
+   - If, after analyzing all provided snippets, you find NO vulnerabilities, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
 
 --- Context from Knowledge Base ---
 {knowledge_base_context}
@@ -185,12 +161,13 @@ Question: {query}
 
 Answer (in the same language as the Question):"""
 
+# Creazione efettiva del pormpt
 prompt_template = PromptTemplate(
-    input_variables=["query", "additional_folder_context", "knowledge_base_context"],
+    input_variables=["additional_folder_context", "knowledge_base_context"],
     template=prompt_template_str
 )
 
-# FUNZIONE PER CONTARE I TOKEN
+# Funzione per il conteggio dei prompt
 def count_tokens_for_llm_input(text_input: str, llm_instance: ChatGoogleGenerativeAI) -> int:
     try:
         return llm_instance.get_num_tokens(text_input)
@@ -207,73 +184,97 @@ while True:
         print("Exit from the program.")
         break
 
-    # Recupero contesto dal Path
-    additional_folder_context_str = "No additional context from folder provided."
-    folder_path_input = input("Specify a folder path for the context to be analyzed: ").strip()
-    
-    if folder_path_input and os.path.isdir(folder_path_input):
-        print(f"\nLoading context from folder: {folder_path_input}")
-        folder_documents = load_folder_path_documents(folder_path_input)
-        if folder_documents:
-            additional_folder_context_str = "\n\n".join([f"--- File content: {doc.metadata.get('source', 'Unknown')} ---\n{doc.page_content}" for doc in folder_documents])
-            print(f"Context from {len(folder_documents)} file loaded from the folder.")
-        else:
-            print("No loadable document found in the specified folder.")
-            additional_folder_context_str = "The specified folder contained no loadable documents."
-    elif folder_path_input:
-        print("Invalid folder path.")
+    # Caricamento dello smell
+    smell_data = load_smell_data(user_query, knowledge_base_dir)
+    if not smell_data:
+        continue # Chiedi un nuovo input se lo smell non esiste
 
-    # Recupero contesto dalla Knowledge Base 
-    knowledge_base_context_str = "No context retrieved from the Knowledge Base."
-    retrieved_kb_docs_with_similarity = [] # Lista per (doc, percentuale_similarità)
-
-    # Modifichiamo questa sezione per usare vectorstore.similarity_search_with_relevance_scores
-    if vectorstore: # Controlla se vectorstore è stato inizializzato
-        print(f"\nSearch the Knowledge Base for: '{user_query}'")
-        try:
-            k_retrieval = 3 
-            # Ottieni documenti e punteggi di rilevanza (0-1, più alto è meglio)
-            results_with_relevance = vectorstore.similarity_search_with_relevance_scores(
-                user_query, 
-                k=k_retrieval
-            )
-            
-            if results_with_relevance:
-                # Estrai i documenti e calcola la percentuale di similarità
-                retrieved_docs_for_context = []
-                for doc, relevance_score in results_with_relevance:
-                    similarity_percentage = relevance_score * 100
-                    retrieved_kb_docs_with_similarity.append((doc, similarity_percentage))
-                    retrieved_docs_for_context.append(doc)
-
-                knowledge_base_context_str = "\n\n".join([f"--- Chunk from the KB (Source: {doc.metadata.get('source', 'N/A')}) ---\n{doc.page_content}" for doc in retrieved_docs_for_context])
-                print(f"Retrieved {len(retrieved_docs_for_context)} relevant chunks from the Knowledge Base.")
-                
-                # Mostra snippet con percentuale di similarità
-                print("\nRelevant chunks from the Knowledge Base (with similarities):")
-                for i, (doc, sim_pct) in enumerate(retrieved_kb_docs_with_similarity):
-                    snippet = doc.page_content.strip().replace("\n", " ")[:150] + "..."
-                    print(f"  Chunk KB {i+1} (Similarities: {sim_pct:.2f}%)")
-                    print(f"    Source: {doc.metadata.get('source', 'N/A')}")
-                    print(f"    Snippet: {snippet}\n")
-            else:
-                print("No relevant chunk found in the Knowledge Base.")
-        except Exception as e:
-            print(f"Error while retrieving from Knowledge Base: {e}")
-            knowledge_base_context_str = "Error while retrieving from Knowledge Base."
-    else:
-        print("Knowledge Base Vectorstore not available (no initial document or creation error?).")
-
-    # Creazione del prompt finale
-    try:
-        final_prompt_string = prompt_template.format(
-            query=user_query,
-            additional_folder_context=additional_folder_context_str,
-            knowledge_base_context=knowledge_base_context_str
-        )
-    except Exception as e:
-        print(f"Error while formatting the prompt: {e}")
+    # Caricamento e chunking del codice passato nel path
+    folder_path_input = input("Specify a folder path for the code to be analyzed: ").strip()
+    if not (folder_path_input and os.path.isdir(folder_path_input)):
+        print("Invalid or empty folder path. Please try again.")
         continue
+
+    source_code_docs = load_folder_path_documents(folder_path_input)
+    if not source_code_docs:
+        print("No source code documents were found in the specified path.")
+        continue
+        
+    code_chunks = get_code_chunks(source_code_docs)
+    if not code_chunks:
+        print("Could not split source code into chunks.")
+        continue
+
+    # Creazione del vector store temporaneo del codice passato nel path
+    print("Creating temporary vector store for the user's code...")
+
+    # Si può aumentare la batch_size se hai molta RAM, per andare più veloce.
+    batch_size = 64
+    all_embeddings = []
+    all_texts = []
+    all_metadatas = []
+
+    # Usiamo TQDM((barra di progressione) per iterare sui batch di documenti
+    for i in tqdm(range(0, len(code_chunks), batch_size), desc="Generating Embeddings"):
+        # Seleziona il batch di documenti corrente
+        batch_docs = code_chunks[i:i + batch_size]
+        # Estrai il testo da ogni documento nel batch
+        batch_texts = [doc.page_content for doc in batch_docs]
+        
+        # Crea gli embeddings per l'intero batch in una sola chiamata (efficiente)
+        batch_embeddings = embeddings_model.embed_documents(batch_texts)
+        
+        # Aggiungi i risultati alle liste principali
+        all_embeddings.extend(batch_embeddings)
+        all_texts.extend(batch_texts)
+        all_metadatas.extend([doc.metadata for doc in batch_docs])
+
+    # Creiamo l'indice FAISS
+    print("Building FAISS index...")
+    text_embedding_pairs = list(zip(all_texts, all_embeddings))
+
+    # Usiamo from_embeddings per costruire il vector store da dati pre-calcolati
+    code_vectorstore = FAISS.from_embeddings(
+        text_embeddings=text_embedding_pairs,
+        embedding=embeddings_model, 
+        metadatas=all_metadatas    
+    )
+    print("Vector store created successfully.")
+
+    # Cerchiamo le parti di codice sospette
+    print("Searching for suspicious code snippets based on examples from the KB...")
+    # Estrai tutti gli esempi negativi dalla KB per usarli come query
+    search_queries = [ex['esempio_negativo'] for ex in smell_data.get('manifestazioni_e_esempi', [])]
+    if not search_queries:
+        print("Warning: No 'negative examples' found in the KB for this smell. Analysis might be inaccurate.")
+        continue
+    
+    # Concatena gli esempi
+    search_query_str = "\n".join(search_queries)
+    
+    # Esegui la ricerca nel vectorstore del codice utente
+    retrieved_code_snippets = code_vectorstore.similarity_search(search_query_str, k=20) # k indica il numero di snippet di codice da recuperare
+
+    if not retrieved_code_snippets:
+        print("No code snippets were found to be similar to the examples. The code is likely clean for this smell.")
+        continue
+    
+    print(f"Found {len(retrieved_code_snippets)} potentially suspicious code snippets to analyze.")
+
+    # Preparazione del prompt
+    kb_context_for_prompt = f"Description: {smell_data['descrizione_sintetica']}\n\nRemediation Strategies: {json.dumps(smell_data['strategie_di_remediation'], indent=2)}"
+    
+    # Contesto dal codice utente: solo gli snippet sospetti
+    code_context_for_prompt = "\n\n".join(
+        [f"--- Snippet from file: {doc.metadata.get('source', 'Unknown')} ---\n```\n{doc.page_content}\n```" for doc in retrieved_code_snippets]
+    )
+    
+    final_prompt_string = prompt_template.format(
+        knowledge_base_context=kb_context_for_prompt,
+        additional_folder_context=code_context_for_prompt
+    ).replace("[Smell Name]", user_query) # Sostituisce il placeholder nel template
+
+
 
     # ("\n--- Prompt Finale (prima dell'invio all'LLM) ---")
     # è commentato perchè è lungo, usarlo come debug
@@ -286,7 +287,7 @@ while True:
     if token_count != -1:
         print(f"Number of tokens estimated for input to the LLM: {token_count}")
 
-    # 5. Invocazione dell'LLM con il prompt composto
+    # Invocazione dell'LLM con il prompt composto
     print("\nRequest to the LLM in progress...")
     try:
         response = llm.invoke(final_prompt_string)
