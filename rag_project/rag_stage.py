@@ -17,6 +17,8 @@ from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter, Language
 from tqdm import tqdm
 
+TYPE_SMELL = os.getenv("TYPE_SMELL", "Architectural")
+
 load_dotenv()
 aiplatform.init(
     project=os.getenv("GPC_PROJECT_ID"),
@@ -138,9 +140,9 @@ print("=========================================================================
 
 
 # Nuovo prompt, si può migliorare
-prompt_template_str = """nstructions:
-1. You are an expert security auditor. Your task is to analyze specific code snippets for a given security smell.
-2. The 'Smell Definition' provides the official description and remediation strategies for the security vulnerability.
+prompt_template_str = """Instructions:
+1. You are an expert {TYPE_SMELL} auditor. Your task is to analyze specific code snippets for a given {TYPE_SMELL} smell.
+2. The 'Smell Definition' provides the official description and remediation strategies for the {TYPE_SMELL} vulnerability.
 3. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
 4. Your primary goal is to analyze EACH snippet and determine if it is affected by the defined smell.
 5. Structure your answer as follows:
@@ -163,7 +165,7 @@ Answer (in the same language as the Question):"""
 
 # Creazione efettiva del pormpt
 prompt_template = PromptTemplate(
-    input_variables=["additional_folder_context", "knowledge_base_context"],
+    input_variables=["TYPE_SMELL", "additional_folder_context", "knowledge_base_context"],
     template=prompt_template_str
 )
 
@@ -175,11 +177,11 @@ def count_tokens_for_llm_input(text_input: str, llm_instance: ChatGoogleGenerati
         print(f"Errore durante il conteggio dei token: {e}")
         return -1
 
-print("\n-----------------RAG with Gemini for Security Smell detection----------------")
+print(f"\n-----------------RAG with Gemini for {TYPE_SMELL} Smell detection----------------")
 print("Type the name of the smell you want to do the analysis on (or 'exit' to exit).")
 
 while True:
-    user_query = input("Name of Security Smell: ")
+    user_query = input(f"Name of {TYPE_SMELL} Smell: ")
     if user_query.lower() in ["exit", "quit", "esci", "stop", "x", "q"]:
         print("Exit from the program.")
         break
@@ -244,7 +246,7 @@ while True:
     # Cerchiamo le parti di codice sospette
     print("Searching for suspicious code snippets based on examples from the KB...")
     # Estrai tutti gli esempi negativi dalla KB per usarli come query
-    search_queries = [ex['esempio_negativo'] for ex in smell_data.get('manifestazioni_e_esempi', [])]
+    search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
     if not search_queries:
         print("Warning: No 'negative examples' found in the KB for this smell. Analysis might be inaccurate.")
         continue
@@ -262,14 +264,15 @@ while True:
     print(f"Found {len(retrieved_code_snippets)} potentially suspicious code snippets to analyze.")
 
     # Preparazione del prompt
-    kb_context_for_prompt = f"Description: {smell_data['descrizione_sintetica']}\n\nRemediation Strategies: {json.dumps(smell_data['strategie_di_remediation'], indent=2)}"
-    
+    kb_context_for_prompt = f"Description: {smell_data['brief_description']}"
+
     # Contesto dal codice utente: solo gli snippet sospetti
     code_context_for_prompt = "\n\n".join(
         [f"--- Snippet from file: {doc.metadata.get('source', 'Unknown')} ---\n```\n{doc.page_content}\n```" for doc in retrieved_code_snippets]
     )
     
     final_prompt_string = prompt_template.format(
+        TYPE_SMELL=TYPE_SMELL,
         knowledge_base_context=kb_context_for_prompt,
         additional_folder_context=code_context_for_prompt
     ).replace("[Smell Name]", user_query) # Sostituisce il placeholder nel template
