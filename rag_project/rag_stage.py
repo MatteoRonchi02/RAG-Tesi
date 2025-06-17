@@ -17,7 +17,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter, Language
 from tqdm import tqdm
 
 #Cambiare il tipo di smell da analizzare
-TYPE_SMELL = os.getenv("TYPE_SMELL", "Architectural")   
+TYPE_SMELL = os.getenv("TYPE_SMELL", "Security")   
 
 load_dotenv()
 aiplatform.init(
@@ -148,7 +148,8 @@ prompt_template_str = """Instructions:
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
 6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - For each analyzed file path, create a section.
+   - Make a list of analysed services.
+   - For each analyzed file path, create a section, divided by a line of -.
    - Under each file path, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
      a. The line of code or block that contains the smell.
