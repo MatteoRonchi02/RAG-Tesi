@@ -1,0 +1,198 @@
+{
+  "smell_name": "wobbly service interaction",
+  "brief_description": "this smell shows up when Service A calls Service B but doesn’t protect itself against B’s failure or slowness. If B hiccups, A also collapses or hangs—triggering cascading errors and breaking the isolation you want in microservices.",
+  "microservices_context": [
+    "a glitch in one service cascades into others, risking a domino-effect failure.",
+    "violates failure isolation—the cornerstone of resilient microservice design.",
+    "drags down overall availability when a local issue spreads.",
+    "no timeouts, retries, circuit breakers or fallbacks mean the caller just waits or fails hard."
+  ],
+  "manifestations": [ 
+    {
+      "artifact_type": "source code",
+      "language": "Python",
+      "negative_example": "import requests\n\ndef call_service():\n    try:\n        # No timeout—this will hang forever if the service is down.\n        response = requests.get(\"http://service-b/api/v1/resource\")\n        if response.status_code == 200:\n            print(\"Success:\", response.json())\n        else:\n            print(\"Error:\", response.status_code)\n    except requests.exceptions.RequestException as e:\n        print(\"Service call failed:\", e)\n\ncall_service()",
+      "explanation": "Without a timeout, the caller blocks indefinitely, making your system brittle if Service B doesn’t reply."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "import java.net.HttpURLConnection;\nimport java.net.URL;\n\npublic class Example {\n    public static void main(String[] args) {\n        try {\n            URL url = new URL(\"http://service-b/api/v1/resource\");\n            HttpURLConnection conn = (HttpURLConnection) url.openConnection();\n            conn.setRequestMethod(\"GET\");\n            // Missing timeouts, retries, circuit breaker, etc.\n            int code = conn.getResponseCode();\n            System.out.println(code == 200 ? \"Success\" : \"Error: \" + code);\n        } catch (Exception e) {\n            System.out.println(\"Service call failed: \" + e.getMessage());\n        }\n    }\n}",
+      "explanation": "No guardrails (timeouts, circuit breakers) means repeated failures can overwhelm both sides."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Node.js",
+      "negative_example": "const axios = require('axios');\n\nasync function callService() {\n  try {\n    // No timeout or retry/backoff—one hiccup and you’re done.\n    const res = await axios.get('http://service-b/api/v1/resource');\n    console.log('Success:', res.data);\n  } catch (err) {\n    console.error('Service call failed:', err.message);\n  }\n}\n\ncallService();",
+      "explanation": "Without retry logic or timeout, a temporary outage in B takes down your whole call."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Go",
+      "negative_example": "package main\n\nimport (\n  \"context\"\n  \"log\"\n  \"time\"\n  \"google.golang.org/grpc\"\n  pb \"example.com/proto\"\n)\n\nfunc main() {\n  // No retry policy on Dial\n  conn, err := grpc.Dial(\"service-b:50051\", grpc.WithInsecure())\n  if err != nil {\n    log.Fatalf(\"Failed to connect: %v\", err)\n  }\n  defer conn.Close()\n\n  client := pb.NewExampleServiceClient(conn)\n  ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)\n  defer cancel()\n\n  // No retry on the RPC itself\n  resp, err := client.ExampleMethod(ctx, &pb.ExampleRequest{Message: \"hello\"})\n  if err != nil {\n    log.Fatalf(\"Service call failed: %v\", err)\n  }\n  log.Printf(\"Response: %s\", resp.Message)\n}",
+      "explanation": "gRPC without retries or circuit breakers means a transient network blip can bring down your caller."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "PHP",
+      "negative_example": "<?php\n$endpoint = \"http://service-b/api/v1/resource\";\n$options = [\n    'http' => [\n        'method' => 'GET'\n        // No timeout => potential infinite hang\n    ]\n];\n$ctx = stream_context_create($options);\n$result = file_get_contents($endpoint, false, $ctx);\necho $result === false ? \"Service call failed\" : \"Success: $result\";\n?>",
+      "explanation": "file_get_contents without a timeout will block forever if the other service never replies."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Python",
+      "negative_example": "import psycopg2\n\ntry:\n    conn = psycopg2.connect(\n        host=\"database-service\",\n        dbname=\"example_db\",\n        user=\"user\",\n        password=\"pwd\",\n        connect_timeout=5  # OK, but no fallback if it fails\n    )\n    cur = conn.cursor()\n    cur.execute(\"SELECT * FROM example_table\")\n    print(cur.fetchall())\nexcept psycopg2.OperationalError as e:\n    print(\"DB connection failed:\", e)\nfinally:\n    if 'conn' in locals(): conn.close()",
+      "explanation": "Even though you set a timeout, there is no fallback (e.g., return cached data), so a DB outage kills your feature."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "// Synchronous call with no timeout, retry or fallback.\npublic String getExternalData() {\n    RestTemplate restTemplate = new RestTemplate();\n    String url = \"http://service-b/api/data\";\n    try {\n        ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);\n        return response.getBody();\n    } catch (Exception e) {\n        // Very basic exception handling, no retry, no fallback\n        return null; // Or throws an exception\n    }\n}",
+      "explanation": "Simple synchronous call using `RestTemplate` without configuring a timeout or retry mechanism. A failure in `service-b` can easily cascade."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "JavaScript",
+      "negative_example": "// Calling Service B without handling timeouts or implementing retries.\nasync function fetchDataFromServiceB() {\n  try {\n    const response = await fetch('http://service-b/data');\n    const data = await response.json();\n    return data;\n  } catch (error) {\n    console.error('Failed to fetch data from Service B:', error);\n    return null; // Basic error handling without retry.\n  }\n}",
+      "explanation": "The JavaScript code uses `fetch` to retrieve data from `service-b` but doesn't implement any retry logic or timeout handling. It only catches the exception and logs the error."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Vue",
+      "negative_example": "// Vue component fetching data without considering retries or fallbacks.\nexport default {\n  data() {\n    return {\n      data: null\n    };\n  },\n  mounted() {\n    this.fetchData();\n  },\n  methods: {\n    async fetchData() {\n      try {\n        const response = await fetch('http://service-b/api/data');\n        this.data = await response.json();\n      } catch (error) {\n        console.error('Failed to fetch data:', error);\n        this.data = 'Error loading data'; // No retry, just shows an error.\n      }\n    }\n  }\n};",
+      "explanation": "Vue component that makes a simple `fetch` request, without any retry mechanisms or fallback strategies."
+    },
+    {
+      "artifact_type": "HTML",
+      "language": "HTML",
+      "negative_example": "<!-- Iframe loading content from another service without error handling -->\n<iframe src=\"http://service-b/content\" onload=\"console.log('Loaded')\" onerror=\"console.error('Failed to load')\"></iframe>",
+      "explanation": "An `iframe` loading content from another service without any specific error handling or fallback, other than a basic `onerror` handler. No retry, no alternative content."
+    },
+    {
+      "artifact_type": "Dockerfile",
+      "language": "Dockerfile",
+      "negative_example": "# Dockerfile for a service that depends on another service without readiness checks.\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nCMD [\"node\", \"server.js\"] # Assumes all services are always up.",
+      "explanation": "Dockerfile does not include any readiness probe or health check that ensures `service-b` is running before `service-a` starts, leading to potential startup failures."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "// Java: Blocking queue without timeout while consuming from another service.\nBlockingQueue<String> queue = new LinkedBlockingQueue<>();\n\npublic void consumeData() {\n    try {\n        String data = queue.take(); // Blocks indefinitely if no data is available.\n        process(data);\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    }\n}",
+      "explanation": "The code uses `queue.take()` which blocks indefinitely if no data is available in the queue. If the producing service fails, the consumer will hang."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "JavaScript",
+      "negative_example": "// Javascript: WebSockets without handling disconnects gracefully.\nconst WebSocket = require('ws');\n\nconst ws = new WebSocket('ws://service-b/ws');\n\nws.on('open', () => {\n  console.log('Connected to WebSocket');\n});\n\nws.on('message', (message) => {\n  console.log('Received: %s', message);\n});\n\nws.on('close', () => {\n  console.log('Disconnected');\n});\n\nws.on('error', (error) => {\n  console.error('Error:', error);\n});",
+      "explanation": "This WebSocket connection doesn't include retry logic or automatic reconnection if the connection is closed or encounters an error, leading to a potentially broken service."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Vue",
+      "negative_example": "// Vue: SSE (Server-Sent Events) subscription without handling errors or retries.\nexport default {\n  data() {\n    return {\n      message: ''\n    };\n  },\n  mounted() {\n    const eventSource = new EventSource('http://service-b/sse');\n\n    eventSource.onmessage = (event) => {\n      this.message = event.data;\n    };\n\n    eventSource.onerror = (error) => {\n      console.error('SSE error:', error);\n    };\n  }\n};",
+      "explanation": "Vue component that subscribes to Server-Sent Events without handling errors or implementing retry logic, potentially missing updates if the connection drops."
+    },
+    {
+      "artifact_type": "HTML",
+      "language": "HTML",
+      "negative_example": "<!-- HTML: Image loading from another service with no fallback -->\n<img src=\"http://service-b/image.jpg\" alt=\"Image from Service B\">",
+      "explanation": "HTML code that displays an image loaded from another service, without any fallback if the image fails to load."
+    },
+    {
+      "artifact_type": "Dockerfile",
+      "language": "Dockerfile",
+      "negative_example": "# Dockerfile: Service depends on another service being up without health checks.\nFROM python:3.9-slim-buster\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt\nCMD [\"python\", \"app.py\"]  # Assumes dependent services are always available",
+      "explanation": "Dockerfile doesn't specify health checks to ensure dependencies are running before starting the application. This can lead to errors if dependent services are not available."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "// Java: CompletableFuture without timeout handling\nCompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {\n    RestTemplate restTemplate = new RestTemplate();\n    String url = \"http://service-b/api/data\";\n    return restTemplate.getForObject(url, String.class);\n});\n\ntry {\n    String result = future.get(); // Blocks indefinitely\n    System.out.println(result);\n} catch (Exception e) {\n    e.printStackTrace();\n}",
+      "explanation": "This code uses `CompletableFuture` without specifying a timeout, so `future.get()` will block indefinitely if the computation takes too long or the service is down."
+    },
+        {
+      "artifact_type": "source code",
+      "language": "JavaScript",
+      "negative_example": "// JavaScript: Long polling without error handling and retry mechanism.\nasync function fetchData() {\n    try {\n        const response = await fetch('http://service-b/long-polling');\n        const data = await response.json();\n        console.log('Received data:', data);\n        fetchData(); // Re-initiate polling\n    } catch (error) {\n        console.error('Error during long polling:', error);\n        // No retry strategy or fallback\n    }\n}\n\nfetchData();",
+      "explanation": "This implements long polling without any error handling or retry mechanism in case of connection issues or timeouts."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Vue",
+      "negative_example": "// Vue: Form submission to another service without validation or error handling.\nexport default {\n  data() {\n    return {\n      formData: {},\n    };\n  },\n  methods: {\n    async submitForm() {\n      try {\n        const response = await fetch('http://service-b/submit', {\n          method: 'POST',\n          body: JSON.stringify(this.formData),\n        });\n        const result = await response.json();\n        console.log('Submission result:', result);\n      } catch (error) {\n        console.error('Submission failed:', error);\n      }\n    },\n  },\n};",
+      "explanation": "This Vue component submits a form to another service without any input validation, error handling, or retry mechanisms."
+    },
+        {
+      "artifact_type": "HTML",
+      "language": "HTML",
+      "negative_example": "<!-- HTML: Script loading from CDN without fallback mechanism. -->\n<script src=\"https://cdn.example.com/library.js\"></script>",
+      "explanation": "This loads a script from a CDN without any fallback mechanism if the CDN is unavailable, potentially breaking the application."
+    }, 
+    {
+      "artifact_type": "configuration",
+      "language": "YAML",
+      "negative_example": "apiVersion: v1\nkind: Pod\nmetadata:\n  name: service-a\nspec:\n  containers:\n    - name: service-a-container\n      image: service-a:latest\n      ports:\n        - containerPort: 8080\n      # Missing readinessProbe and livenessProbe",
+      "explanation": "This Kubernetes manifest does not define `readinessProbe` or `livenessProbe`, which are essential to detect whether a service is healthy and ready to handle requests. Without them, cascading failures may happen if unhealthy pods remain in rotation."
+    },
+    {
+      "artifact_type": "configuration",
+      "language": "YAML",
+      "negative_example": "service:\n  url: http://service-b\n  # No timeout or retry values specified\nresources:\n  limits:\n    cpu: \"500m\"\n    memory: \"512Mi\"",
+      "explanation": "The Helm values file does not include configuration for timeout or retry settings, leaving the service vulnerable to hanging requests and unbounded retries."
+    }, 
+      {
+      "artifact_type": "specification",
+      "language": "YAML",
+      "negative_example": "paths:\n  /data:\n    get:\n      summary: Fetch data from service B\n      responses:\n        200:\n          description: Successful response\n          content:\n            application/json:\n              schema:\n                $ref: '#/components/schemas/Data'\n        # Missing 4xx/5xx error response schema",
+      "explanation": "This OpenAPI specification lacks defined error responses for server or client failures. Without this, consumers of the API may not know how to properly handle failures."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Python",
+      "negative_example": "import requests\n\ndef call_service():\n    for _ in range(5):  # Naive retry loop\n        try:\n            response = requests.get(\"http://service-b/api\")\n            if response.status_code == 200:\n                print(\"Success\")\n                return\n        except Exception:\n            pass\n    print(\"All retries failed\")",
+      "explanation": "This retry logic does not implement exponential backoff or delay, which can flood the downstream service if it is already struggling."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "JavaScript",
+      "negative_example": "async function createUser(data) {\n  for (let i = 0; i < 3; i++) {\n    try {\n      const res = await fetch('http://service-b/users', {\n        method: 'POST',\n        body: JSON.stringify(data),\n        headers: { 'Content-Type': 'application/json' }\n      });\n      if (res.ok) return await res.json();\n    } catch (_) {}\n  }\n}",
+      "explanation": "This retry logic applies to a POST request, which is not idempotent. Retrying it blindly may result in duplicate users being created, violating consistency."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "public String getData() {\n    CircuitBreaker cb = new CircuitBreaker();\n    if (cb.isOpen()) {\n        System.out.println(\"Warning: circuit breaker open\");\n    }\n    return callService(); // Still calls the service anyway\n}",
+      "explanation": "This circuit breaker check logs a warning but doesn't actually prevent the failing service call, defeating its purpose and still allowing potential cascading failure."
+    }
+  ],
+  "positive_examples": [
+    {
+      "artifact_type": "source code",
+      "language": "Python",
+      "positive_example": "import requests\nfrom requests.adapters import HTTPAdapter\nfrom urllib3.util.retry import Retry\n\ndef call_service():\n    session = requests.Session()\n    retry = Retry(total=3, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])\n    adapter = HTTPAdapter(max_retries=retry)\n    session.mount('http://', adapter)\n    session.mount('https://', adapter)\n\n    try:\n        response = session.get(\"http://service-b/api/v1/resource\", timeout=5)\n        if response.status_code == 200:\n            print(\"Success:\", response.json())\n        else:\n            print(\"Error:\", response.status_code)\n    except requests.exceptions.RequestException as e:\n        print(\"Fallback: using cached data due to:\", e)\n\ncall_service()",
+      "explanation": "Usa timeout, retry con backoff e un fallback. Protegge il servizio chiamante da ritardi o errori del servizio remoto."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "positive_example": "import io.github.resilience4j.circuitbreaker.CircuitBreaker;\nimport io.github.resilience4j.retry.Retry;\nimport io.vavr.control.Try;\nimport org.springframework.web.client.RestTemplate;\n\npublic class ResilientClient {\n    private RestTemplate restTemplate = new RestTemplate();\n    private CircuitBreaker circuitBreaker = CircuitBreaker.ofDefaults(\"serviceB\");\n    private Retry retry = Retry.ofDefaults(\"serviceB\");\n\n    public String getData() {\n        return Try.ofSupplier(Retry.decorateSupplier(retry,\n                CircuitBreaker.decorateSupplier(circuitBreaker, () ->\n                        restTemplate.getForObject(\"http://service-b/api/data\", String.class)\n                )))\n                .recover(throwable -> \"Fallback response\")\n                .get();\n    }\n}",
+      "explanation": "Combina retry, circuit breaker e fallback. Previene chiamate continue a un servizio instabile e fornisce una risposta alternativa."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Node.js",
+      "positive_example": "const axios = require('axios');\nconst axiosRetry = require('axios-retry');\n\nconst client = axios.create({\n  timeout: 3000\n});\naxiosRetry(client, { retries: 3, retryDelay: axiosRetry.exponentialDelay });\n\nasync function callService() {\n  try {\n    const res = await client.get('http://service-b/api/v1/resource');\n    console.log('Success:', res.data);\n  } catch (err) {\n    console.log('Fallback: returning default data due to error:', err.message);\n  }\n}\n\ncallService();",
+      "explanation": "Axios con retry esponenziale e timeout, più fallback in caso di errore. Migliora la resilienza del sistema."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Go",
+      "positive_example": "package main\n\nimport (\n    \"context\"\n    \"fmt\"\n    \"time\"\n\n    \"google.golang.org/grpc\"\n    pb \"example.com/proto\"\n    \"github.com/grpc-ecosystem/go-grpc-middleware/retry\"\n)\n\nfunc main() {\n    dialOpts := []grpc.DialOption{\n        grpc.WithInsecure(),\n        grpc.WithUnaryInterceptor(grpc_retry.UnaryClientInterceptor()),\n    }\n\n    conn, err := grpc.Dial(\"service-b:50051\", dialOpts...)\n    if err != nil {\n        fmt.Println(\"Connection failed:\", err)\n        return\n    }\n    defer conn.Close()\n\n    client := pb.NewExampleServiceClient(conn)\n    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)\n    defer cancel()\n\n    resp, err := client.ExampleMethod(ctx, &pb.ExampleRequest{Message: \"hi\"})\n    if err != nil {\n        fmt.Println(\"Fallback: using cached response\")\n    } else {\n        fmt.Println(\"Response:\", resp.Message)\n    }\n}",
+      "explanation": "Timeout gRPC + interceptor per retry. La gestione degli errori evita blocchi e supporta fallback."
+    }
+  ],
+   "meta_data": {
+    "tags": ["wobbly-interaction", "error-handling", "resilience", "fault-tolerance", "cascading-failure", "timeout", "retry", "circuit-breaker", "fallback"],
+    "impact": "high"
+  }
+}

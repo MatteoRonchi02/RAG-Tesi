@@ -1,0 +1,186 @@
+{
+  "smell_name": "no api gateway",
+  "brief_description": "this smell pops up when external apps call each microservice directly, instead of going through a single, unified entry point. Clients end up juggling service addresses, authentication, and routing themselves—exactly the kind of cross-cutting logic an API gateway should centralize.",
+  "microservices_context": [
+    "clients must know and call each service endpoint, boosting their complexity.",
+    "tightly couples client code to internal service layout.",
+    "spreads security, rate-limiting, logging, and other policies across all services.",
+    "harder to evolve or secure your system when every client does discovery and auth itself."
+  ],
+  "manifestations": [
+    {
+      "artifact_type": "source code",
+      "language": "JavaScript",
+      "negative_example": "// Browser calls two services directly.\nfetch('http://product-service/api/products')\n  .then(r => r.json()).then(data => console.log('Products:', data));\n\nfetch('http://order-service/api/orders')\n  .then(r => r.json()).then(data => console.log('Orders:', data));",
+      "explanation": "Your front-end has to know every service URL and stitch together responses—that is what an API gateway should handle."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Python",
+      "negative_example": "# Client with hardcoded service map.\nSERVICE_URLS = {\n  'product': 'http://product-service/api/products',\n  'order':   'http://order-service/api/orders',\n  'payment': 'http://payment-service/api/payments'\n}\n\nurl = SERVICE_URLS['product']\n# Client calls this URL directly…",
+      "explanation": "Embedding service locations in client logic makes every change a client-release event."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "// Each microservice checks auth in its controller.\n@RestController\npublic class ProductController {\n    @GetMapping(\"/api/products\")\n    public ResponseEntity<?> getProducts(@RequestHeader(\"Authorization\") String token) {\n        if (!isValidToken(token)) {\n            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();\n        }\n        // …return products\n    }\n}",
+      "explanation": "Duplicated authentication code in every service instead of centralizing it in one gateway."
+    },
+    {
+      "artifact_type": "command-line interaction",
+      "language": "Shell",
+      "negative_example": "# Client hits specific instances directly, no load balancer.\ncurl http://product-service-instance-1/api/products\ncurl http://product-service-instance-2/api/products",
+      "explanation": "By talking to each instance, the client misses out on load balancing, routing, and failover that a gateway would provide."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "// Service discovery logic in each microservice.\n@Autowired\nprivate DiscoveryClient discoveryClient;\n\npublic String getProductUrl() {\n    List<ServiceInstance> instances = discoveryClient.getInstances(\"product-service\");\n    if (instances != null && !instances.isEmpty()) {\n        return instances.get(0).getUri().toString();\n    } else {\n        return null;\n    }\n}",
+      "explanation": "Each service implements discovery, duplicating the gateway's routing role."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "JavaScript",
+      "negative_example": "// Hardcoded URL for the user service.\nasync function fetchUserData(userId) {\n  const response = await fetch(`http://user-service:8080/users/${userId}`);\n  return response.json();\n}",
+      "explanation": "Directly referencing the user service endpoint makes the front-end brittle to changes in the user service's location or port."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Vue",
+      "negative_example": "// Vue component calling multiple services directly.\nexport default {\n  data() {\n    return {\n      products: [],\n      orders: []\n    }\n  },\n  mounted() {\n    fetch('http://product-service/api/products').then(r => r.json()).then(data => this.products = data);\n    fetch('http://order-service/api/orders').then(r => r.json()).then(data => this.orders = data);\n  }\n}",
+      "explanation": "The Vue component is responsible for knowing and orchestrating calls to multiple backend services, which should be handled by an API Gateway."
+    },
+    {
+      "artifact_type": "HTML",
+      "language": "HTML",
+      "negative_example": "<!-- HTML form directly submitting to multiple service endpoints. -->\n<form action=\"http://order-service/createOrder\" method=\"POST\">\n  <input type=\"hidden\" name=\"productId\" value=\"123\">\n  <button type=\"submit\">Create Order</button>\n</form>\n\n<form action=\"http://payment-service/processPayment\" method=\"POST\">\n  <input type=\"hidden\" name=\"orderId\" value=\"456\">\n  <button type=\"submit\">Process Payment</button>\n</form>",
+      "explanation": "The HTML form makes separate requests to different microservices. The API Gateway should provide a single endpoint for creating an order and processing payment."
+    },
+    {
+      "artifact_type": "Dockerfile",
+      "language": "Dockerfile",
+      "negative_example": "# Dockerfile for a client service with hardcoded service URLs.\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nENV PRODUCT_SERVICE_URL=http://product-service:8080\nENV ORDER_SERVICE_URL=http://order-service:8080\nCMD [\"npm\", \"start\"]",
+      "explanation": "Environment variables define hardcoded URLs for other services, illustrating the lack of indirection provided by an API Gateway. If the services change their addresses, this client needs to be rebuilt and redeployed."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "//Rate limiting implemented independently in each service.\n@RestController\npublic class OrderController {\n\n    private final RateLimiter rateLimiter = RateLimiter.create(10); // 10 requests per second\n\n    @PostMapping(\"/orders\")\n    public ResponseEntity<?> createOrder() {\n        if (rateLimiter.tryAcquire()) {\n            // ... process order\n            return ResponseEntity.ok(\"Order created\");\n        } else {\n            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(\"Too many requests\");\n        }\n    }\n}",
+      "explanation": "Each microservice has its own rate limiting logic. An API gateway would allow central management of rate limiting for all services."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "JavaScript",
+      "negative_example": "// CORS configuration duplicated in multiple services.\nconst express = require('express');\nconst cors = require('cors');\nconst app = express();\n\napp.use(cors()); // Enable CORS for all origins\n\napp.get('/products', (req, res) => {\n  res.json([{ id: 1, name: 'Product 1' }]);\n});\n\napp.listen(3000, () => {\n  console.log('Product service running on port 3000');\n});",
+      "explanation": "CORS (Cross-Origin Resource Sharing) configuration is repeated in each service.  An API Gateway could centralize CORS handling."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Vue",
+      "negative_example": "// Vue component directly calling a paginated API without gateway mediation.\nexport default {\n  data() {\n    return {\n      products: [],\n      page: 1,\n      pageSize: 10,\n    }\n  },\n  mounted() {\n    this.fetchProducts();\n  },\n  methods: {\n    async fetchProducts() {\n      const response = await fetch(`http://product-service/api/products?page=${this.page}&pageSize=${this.pageSize}`);\n      this.products = await response.json();\n    }\n  }\n}",
+      "explanation": "The Vue component constructs the pagination URL directly, instead of delegating the composition to a centralized API Gateway that might perform additional transformations or aggregations."
+    },
+    {
+      "artifact_type": "HTML",
+      "language": "HTML",
+      "negative_example": "<!--  HTML making direct service calls with different authentication schemes -->\n<script>\n  async function getProduct() {\n    const token = localStorage.getItem('product-token');\n    const response = await fetch('http://product-service/api/products/1', {\n      headers: {\n        'Authorization': `Bearer ${token}`\n      }\n    });\n    console.log(await response.json());\n  }\n\n  async function getOrder() {\n    const apiKey = 'ORDER_API_KEY';\n    const response = await fetch('http://order-service/api/orders/1', {\n      headers: {\n        'X-API-Key': apiKey\n      }\n    });\n    console.log(await response.json());\n  }\n\n  getProduct();\n  getOrder();\n</script>",
+      "explanation": "The HTML script demonstrates the client needing to manage different authentication schemes for different services.  An API Gateway could handle the authentication and authorization consistently."
+    },
+    {
+      "artifact_type": "Dockerfile",
+      "language": "Dockerfile",
+      "negative_example": "# Dockerfile showing a lack of centralized configuration management.\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nENV PRODUCT_SERVICE_URL=http://product-service:8080\nENV ORDER_SERVICE_URL=http://order-service:8081\nENV PAYMENT_SERVICE_URL=http://payment-service:8082\nCMD [\"npm\", \"start\"]",
+      "explanation": "This Dockerfile shows how client services directly configure URLs for multiple microservices, missing the simplification and centralized configuration an API Gateway offers."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "// Microservice directly exposing database details to the client.\n@RestController\npublic class ProductController {\n    @Autowired\n    private JdbcTemplate jdbcTemplate;\n\n    @GetMapping(\"/api/products\")\n    public List<Map<String, Object>> getProducts() {\n        String sql = \"SELECT id, name, price FROM products\";\n        return jdbcTemplate.queryForList(sql);\n    }\n}",
+      "explanation": "The microservice directly queries the database and exposes the database schema in the response.  An API Gateway could decouple the client from the internal database structure."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "JavaScript",
+      "negative_example": "// Direct Service-to-Service Communication without an API Gateway\nasync function processOrder(order) {\n    const productServiceUrl = 'http://product-service:3001/products';\n    const inventoryServiceUrl = 'http://inventory-service:3002/inventory';\n\n    // Get product details\n    const productResponse = await fetch(`${productServiceUrl}/${order.productId}`);\n    const product = await productResponse.json();\n\n    // Update inventory\n    const inventoryResponse = await fetch(`${inventoryServiceUrl}/${order.productId}`, {\n        method: 'PUT',\n        body: JSON.stringify({ quantity: order.quantity })\n    });\n    const inventory = await inventoryResponse.json();\n\n    return { product, inventory };\n}",
+      "explanation": "This code shows direct service-to-service communication, which can lead to increased complexity and decreased maintainability. An API Gateway would simplify this interaction."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Vue",
+      "negative_example": "// Vue component directly handling multiple microservice responses.\nexport default {\n  data() {\n    return {\n      productDetails: null,\n      inventoryLevel: null,\n    };\n  },\n  async mounted() {\n    try {\n      const productResponse = await fetch('http://product-service/api/products/1');\n      this.productDetails = await productResponse.json();\n      const inventoryResponse = await fetch('http://inventory-service/api/inventory/1');\n      this.inventoryLevel = await inventoryResponse.json();\n    } catch (error) {\n      console.error('Error fetching data:', error);\n    }\n  },\n};",
+      "explanation": "This Vue component fetches data from multiple microservices and handles the responses separately. An API Gateway could aggregate these responses into a single payload."
+    },
+    {
+      "artifact_type": "HTML",
+      "language": "HTML",
+      "negative_example": "<!-- HTML form with direct calls to multiple microservices -->\n<form action=\"http://user-service/register\" method=\"POST\">\n  <label for=\"username\">Username:</label>\n  <input type=\"text\" id=\"username\" name=\"username\"><br><br>\n  <label for=\"password\">Password:</label>\n  <input type=\"password\" id=\"password\" name=\"password\"><br><br>\n  <button type=\"submit\">Register</button>\n</form>\n\n<form action=\"http://email-service/send-verification\" method=\"POST\">\n  <label for=\"email\">Email:</label>\n  <input type=\"email\" id=\"email\" name=\"email\"><br><br>\n  <button type=\"submit\">Send Verification</button>\n</form>",
+      "explanation": "This HTML code shows two separate forms directly calling different microservices (user-service and email-service). An API Gateway would provide a single registration endpoint."
+    },
+    {
+      "artifact_type": "Dockerfile",
+      "language": "Dockerfile",
+      "negative_example": "# Dockerfile without centralized configuration.\nFROM node:14\nWORKDIR /app\nCOPY package*.json .\nRUN npm install\nCOPY .\nENV USER_SERVICE_URL=http://user-service:3001\nENV ORDER_SERVICE_URL=http://order-service:3002\nCMD [\"node\", \"app.js\"]",
+      "explanation": "This Dockerfile configures multiple microservice URLs as environment variables. An API Gateway would provide a single, configurable endpoint."
+    },
+    {
+      "artifact_type": "configuration",
+      "language": "YAML",
+      "negative_example": "# Kubernetes Service without central ingress or gateway.\napiVersion: v1\nkind: Service\nmetadata:\n  name: product-service\nspec:\n  ports:\n    - port: 80\n      targetPort: 8080\n  selector:\n    app: product\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: order-service\nspec:\n  ports:\n    - port: 80\n      targetPort: 8080\n  selector:\n    app: order",
+      "explanation": "Each service is exposed individually via Kubernetes services, rather than through a central ingress or API Gateway."
+    }, 
+    {
+      "artifact_type": "configuration",
+      "language": "JSON",
+      "negative_example": "{\n  \"services\": {\n    \"user\": \"http://user-service:3000\",\n    \"auth\": \"http://auth-service:3001\",\n    \"inventory\": \"http://inventory-service:3002\"\n  }\n}",
+      "explanation": "Service endpoints are hardcoded into configuration files, forcing clients or other services to rely on internal service locations instead of a gateway."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "Java",
+      "negative_example": "// Each service has its own isolated logging setup.\n@RestController\npublic class PaymentController {\n    private static final Logger logger = LoggerFactory.getLogger(PaymentController.class);\n\n    @PostMapping(\"/api/pay\")\n    public ResponseEntity<?> pay(@RequestBody Payment payment) {\n        logger.info(\"Payment started for order: {}\", payment.getOrderId());\n        // ...process payment\n        return ResponseEntity.ok(\"Success\");\n    }\n}",
+      "explanation": "Each microservice handles its own logging. Without an API Gateway, there's no single entry point for unified request tracing or correlation."
+    },
+    {
+      "artifact_type": "source code",
+      "language": "JavaScript",
+      "negative_example": "// Custom metrics per service, with no aggregation point.\nconst express = require('express');\nconst app = express();\nlet requestCount = 0;\n\napp.use((req, res, next) => {\n  requestCount++;\n  console.log(`Requests: ${requestCount}`);\n  next();\n});\n\napp.get('/data', (req, res) => res.send('OK'));\n\napp.listen(3000);",
+      "explanation": "Services track metrics in isolation. Without a centralized API Gateway, aggregating observability data (requests, errors, etc.) is much harder."
+    }
+  ],
+  "positive": [
+  {
+    "artifact_type": "source code",
+    "language": "JavaScript",
+    "positive_example": "// JavaScript client using a single API Gateway endpoint\nfetch('http://api-gateway/api/products')\n  .then(r => r.json()).then(data => console.log('Products:', data));\n\nfetch('http://api-gateway/api/orders')\n  .then(r => r.json()).then(data => console.log('Orders:', data));",
+    "explanation": "The client interacts only with the API Gateway, which handles routing to the appropriate microservices. The client does not need to know the addresses of individual services."
+  },
+  {
+    "artifact_type": "source code",
+    "language": "Vue",
+    "positive_example": "// Vue component calling a unified API Gateway endpoint\nexport default {\n  data() {\n    return {\n      products: [],\n      orders: []\n    }\n  },\n  mounted() {\n    fetch('http://api-gateway/api/products').then(r => r.json()).then(data => this.products = data);\n    fetch('http://api-gateway/api/orders').then(r => r.json()).then(data => this.orders = data);\n  }\n}",
+    "explanation": "The Vue component communicates only with the API Gateway, which abstracts away the details of the underlying microservices."
+  },
+  {
+    "artifact_type": "HTML",
+    "language": "HTML",
+    "positive_example": "<!-- HTML form submitting to a single API Gateway endpoint -->\n<form action=\"http://api-gateway/createOrder\" method=\"POST\">\n  <input type=\"hidden\" name=\"productId\" value=\"123\">\n  <button type=\"submit\">Create Order</button>\n</form>",
+    "explanation": "The HTML form submits to a single endpoint managed by the API Gateway, which coordinates the necessary backend operations."
+  },
+  {
+    "artifact_type": "Dockerfile",
+    "language": "Dockerfile",
+    "positive_example": "# Dockerfile for a client service using a single API Gateway URL\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nENV API_GATEWAY_URL=http://api-gateway:8080\nCMD [\"npm\", \"start\"]",
+    "explanation": "The client service is configured to communicate only with the API Gateway, not with individual microservices."
+  },
+  {
+    "artifact_type": "source code",
+    "language": "JavaScript",
+    "positive_example": "// Centralized authentication via API Gateway\nasync function fetchUserData(userId) {\n  const response = await fetch(`http://api-gateway/users/${userId}`);\n  return response.json();\n}",
+    "explanation": "Authentication and routing are handled by the API Gateway, so the client does not need to manage tokens or service addresses for each microservice."
+  }
+],
+  "meta_data": {
+    "tags": ["api-gateway", "routing", "security", "client-coupling", "cross-cutting-concerns"],
+    "impact": "high"
+  }
+}

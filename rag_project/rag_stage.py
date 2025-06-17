@@ -1,5 +1,4 @@
 import os
-import re
 import warnings
 import json
 from langchain.docstore.document import Document
@@ -17,7 +16,8 @@ from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter, Language
 from tqdm import tqdm
 
-TYPE_SMELL = os.getenv("TYPE_SMELL", "Architectural")
+#Cambiare il tipo di smell da analizzare
+TYPE_SMELL = os.getenv("TYPE_SMELL", "Architectural")   
 
 load_dotenv()
 aiplatform.init(
@@ -122,7 +122,7 @@ def get_code_chunks(code_documents: list[Document]) -> list[Document]:
             splitter = RecursiveCharacterTextSplitter.from_language(language=language, chunk_size=1000, chunk_overlap=150)
             chunks = splitter.split_documents([doc])
         else:
-            # Usa lo splitter di default per Dockerfile, Vue, etc.
+             # Usa lo splitter di default per Dockerfile, Vue, etc.
             chunks = default_splitter.split_documents([doc])
         all_chunks.extend(chunks)
 
@@ -143,9 +143,10 @@ print("=========================================================================
 prompt_template_str = """Instructions:
 1. You are an expert {TYPE_SMELL} auditor. Your task is to analyze specific code snippets for a given {TYPE_SMELL} smell.
 2. The 'Smell Definition' provides the official description and remediation strategies for the {TYPE_SMELL} vulnerability.
-3. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
-4. Your primary goal is to analyze EACH snippet and determine if it is affected by the defined smell.
-5. Structure your answer as follows:
+3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
+4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
+5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
+6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
    - For each analyzed file path, create a section.
    - Under each file path, list the snippets that ARE VULNERABLE.
@@ -155,17 +156,20 @@ prompt_template_str = """Instructions:
    - If a snippet is NOT vulnerable, you don't need to mention it.
    - If, after analyzing all provided snippets, you find NO vulnerabilities, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
 
---- Context from Knowledge Base ---
-{knowledge_base_context}
+--- Smell Definition ---
+{smell_definition}
 
---- Context from Provided Folder ---
+--- Positive Examples (without smell) ---
+{positive_examples}
+
+--- Suspicious Code Snippets from Provided Folder ---
 {additional_folder_context}
 
 Answer (in the same language as the Question):"""
 
-# Creazione efettiva del pormpt
+# Creazione efettiva del prompt
 prompt_template = PromptTemplate(
-    input_variables=["TYPE_SMELL", "additional_folder_context", "knowledge_base_context"],
+    input_variables=["TYPE_SMELL", "smell_definition", "positive_examples", "additional_folder_context"],
     template=prompt_template_str
 )
 
@@ -216,7 +220,7 @@ while True:
     all_texts = []
     all_metadatas = []
 
-    # Usiamo TQDM((barra di progressione) per iterare sui batch di documenti
+    # Usiamo TQDM (barra di progressione) per iterare sui batch di documenti
     for i in tqdm(range(0, len(code_chunks), batch_size), desc="Generating Embeddings"):
         # Seleziona il batch di documenti corrente
         batch_docs = code_chunks[i:i + batch_size]
@@ -253,7 +257,7 @@ while True:
     
     # Concatena gli esempi
     search_query_str = "\n".join(search_queries)
-    
+
     # Esegui la ricerca nel vectorstore del codice utente
     retrieved_code_snippets = code_vectorstore.similarity_search(search_query_str, k=20) # k indica il numero di snippet di codice da recuperare
 
@@ -263,8 +267,11 @@ while True:
     
     print(f"Found {len(retrieved_code_snippets)} potentially suspicious code snippets to analyze.")
 
-    # Preparazione del prompt
-    kb_context_for_prompt = f"Description: {smell_data['brief_description']}"
+    # Prepara i campi per il prompt
+    smell_definition = f"Description: {smell_data['brief_description']}"
+    positive_examples = "\n\n".join(
+        [f"--- Positive Example ({ex['language']}) ---\n{ex['positive_example']}\nExplanation: {ex['explanation']}" for ex in smell_data.get('positive', [])]
+        ) if 'positive' in smell_data else "No positive examples available."
 
     # Contesto dal codice utente: solo gli snippet sospetti
     code_context_for_prompt = "\n\n".join(
@@ -273,7 +280,8 @@ while True:
     
     final_prompt_string = prompt_template.format(
         TYPE_SMELL=TYPE_SMELL,
-        knowledge_base_context=kb_context_for_prompt,
+        smell_definition=smell_definition,
+        positive_examples=positive_examples,
         additional_folder_context=code_context_for_prompt
     ).replace("[Smell Name]", user_query) # Sostituisce il placeholder nel template
 
