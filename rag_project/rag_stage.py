@@ -47,18 +47,14 @@ knowledge_base_dir = 'knowledge_base'
 
 # Mappatura estensioni file ai relativi loader
 LOADER_MAPPING = {
-    ".txt": (TextLoader, {"encoding": "utf-8"}),
-    ".docx": (UnstructuredWordDocumentLoader, {}),
-    ".pdf": (UnstructuredPDFLoader, {}),
     ".java": (TextLoader, {"encoding": "utf-8"}),
     ".js": (TextLoader, {"encoding": "utf-8"}),
     ".vue": (TextLoader, {"encoding": "utf-8"}),
     ".html": (TextLoader, {"encoding": "utf-8"}),
     "dockerfile": (TextLoader, {"encoding": "utf-8"}),
-    ".py": (TextLoader, {"encoding": "utf-8"}),
-    ".go": (TextLoader, {"encoding": "utf-8"}),
-    ".cs": (TextLoader, {"encoding": "utf-8"}),
-    ".sh": (TextLoader, {"encoding": "utf-8"})
+    ".sh": (TextLoader, {"encoding": "utf-8"}),
+    ".json": (TextLoader, {"encoding": "utf-8"}),
+    ".groovy": (TextLoader, {"encoding": "utf-8"})
 }
 
 # Carica i dati della KB dal formato json
@@ -112,7 +108,8 @@ def get_code_chunks(code_documents: list[Document]) -> list[Document]:
     language_map = {
         ".java": Language.JAVA,
         ".js": Language.JS,
-        ".html": Language.HTML
+        ".html": Language.HTML,
+        ".scala": Language.SCALA
     }
     
     # Splitter di default per file non mappati (es. Dockerfile, .vue, .txt)
@@ -169,7 +166,7 @@ prompt_template_str = """Instructions:
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
 6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - Make a list of services that contains security smell in that way: "Analyzed services: \n - [name of service]".
+   - Make a list of services that contains security smell in that way: "Analyzed services: \n - name of service".
    - For each analyzed file path, create a section, divided by a line of #.
    - Under each file path, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
@@ -269,19 +266,41 @@ while True:
     )
     print("Vector store created successfully.")
 
-    # Cerchiamo le parti di codice sospette
     print("Searching for suspicious code snippets based on examples from the KB...")
-    # Estrai tutti gli esempi negativi dalla KB per usarli come query
     search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
     if not search_queries:
         print("Warning: No 'negative examples' found in the KB for this smell. Analysis might be inaccurate.")
         continue
     
-    # Concatena gli esempi
     search_query_str = "\n".join(search_queries)
 
-    # Esegui la ricerca nel vectorstore del codice utente
-    retrieved_code_snippets = code_vectorstore.similarity_search(search_query_str, k=20) # k indica il numero di snippet di codice da recuperare
+    lista_file_unici = sorted(list(set(chunk.metadata['source'] for chunk in code_chunks)))
+    print(f"Found {len(lista_file_unici)} unique source files to analyze.")
+
+    all_retrieved_snippets = []
+    processed_content = set() 
+    
+    # snippet rilevanti vuoi recuperare da OGNI file.
+    k_per_file = 5 
+
+    print(f"Executing filtered search to get up to {k_per_file} snippets per file...")
+    for file_path in tqdm(lista_file_unici, desc="Analyzing files"):
+        retrieved_for_file = code_vectorstore.similarity_search(
+            query=search_query_str,
+            k=k_per_file,
+            filter={"source": file_path}
+        )
+        
+        for snippet in retrieved_for_file:
+            if snippet.page_content not in processed_content:
+                all_retrieved_snippets.append(snippet)
+                processed_content.add(snippet.page_content)
+    
+    if all_retrieved_snippets:
+        scored_snippets = code_vectorstore.similarity_search_with_score(search_query_str, k=len(all_retrieved_snippets))
+        retrieved_code_snippets = [doc for doc, score in scored_snippets]
+    else:
+        retrieved_code_snippets = []
 
     if not retrieved_code_snippets:
         print("No code snippets were found to be similar to the examples. The code is likely clean for this smell.")
