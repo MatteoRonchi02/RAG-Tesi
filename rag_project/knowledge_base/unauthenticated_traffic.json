@@ -1,6 +1,6 @@
 {
   "smell_name": "Unauthenticated Traffic",
-  "brief_description": "Questo smell si riferisce al traffico tra microservizi che avviene senza alcuna forma di autenticazione. Anche se la comunicazione avviene all'interno di una rete considerata 'fidata', un aggressore che riesca a compromettere un servizio potrebbe impersonare altri servizi e inviare richieste non autorizzate, muovendosi lateralmente nell'architettura (lateral movement).",
+  "brief_description": "This smell refers to traffic between microservices that occurs without any form of authentication. Even if the communication takes place within a network considered 'trusted', an attacker who manages to compromise one service could impersonate other services and send unauthorized requests, moving laterally through the architecture (lateral movement).",
   "microservices_context": [
     "api-gateway",
     "customer-core",
@@ -12,61 +12,61 @@
       "artifact_type": "Application Configuration",
       "language": "Java (Spring Security)",
       "negative_example": "http.authorizeRequests().antMatchers(\"/api/internal/**\").permitAll()",
-      "explanation": "Gli endpoint destinati alla comunicazione interna tra servizi sono contrassegnati con `permitAll()`. Questo significa che qualsiasi richiesta a questi percorsi verrà accettata senza alcuna verifica di identità."
+      "explanation": "Endpoints intended for internal communication between services are marked with `permitAll()`. This means that any request to these paths will be accepted without any identity verification."
     },
     {
       "artifact_type": "Service Communication",
       "language": "Java (RestTemplate)",
       "negative_example": "String response = restTemplate.getForObject(\"http://policy-management/api/policies/{customerId}\", String.class, customerId);",
-      "explanation": "Una chiamata da un servizio a un altro effettuata tramite HTTP semplice senza allegare alcun token di autenticazione (es. JWT, API key) nell'header della richiesta."
+      "explanation": "A call from one service to another made via simple HTTP without attaching any authentication token (e.g., JWT, API key) in the request header."
     },
     {
       "artifact_type": "Deployment Configuration",
       "language": "Kubernetes (YAML)",
-      "negative_example": "# Assenza di un Service Mesh come Istio o Linkerd\n# I servizi comunicano direttamente tramite HTTP",
-      "explanation": "L'assenza di un service mesh significa che non c'è un meccanismo standard per applicare mTLS (Mutual TLS) di default. Ogni servizio è responsabile della propria sicurezza, e spesso questa viene omessa per semplicità."
+      "negative_example": "# Absence of a Service Mesh like Istio or Linkerd\n# Services communicate directly via HTTP",
+      "explanation": "The absence of a service mesh means there is no standard mechanism to enforce mTLS (Mutual TLS) by default. Each service is responsible for its own security, and this is often omitted for simplicity."
     },
     {
       "artifact_type": "API Gateway Logic",
       "language": "Pseudo-code",
       "negative_example": "route '/internal-api' to 'risk-management-service'\n# No authentication token forwarding",
-      "explanation": "L'API Gateway autentica l'utente finale ma non inoltra un token di identità del servizio (o dell'utente) alle chiamate verso i servizi a monte. Il servizio `risk-management` non ha modo di sapere chi sta chiamando."
+      "explanation": "The API Gateway authenticates the end-user but does not forward a service (or user) identity token to the upstream services. The `risk-management` service has no way of knowing who is calling."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Node.js (Express)",
       "negative_example": "app.post('/events/new-customer', (req, res) => {\n  // Process event without checking the source\n  eventBus.publish(req.body);\n});",
-      "explanation": "Un endpoint che riceve eventi da altri servizi non verifica la sorgente della richiesta. Un servizio compromesso potrebbe iniettare eventi falsi."
+      "explanation": "An endpoint that receives events from other services does not verify the source of the request. A compromised service could inject fake events."
     },
     {
       "artifact_type": "Application Configuration",
       "language": "Java (Spring Boot)",
       "negative_example": "security.basic.enabled=false\n# No alternative authentication mechanism is defined for internal endpoints",
-      "explanation": "La sicurezza di base è disabilitata, e non viene configurato nessun altro meccanismo (come OAuth2/JWT) per proteggere gli endpoint, lasciando la comunicazione interna non autenticata."
+      "explanation": "Basic security is disabled, and no other mechanism (like OAuth2/JWT) is configured to protect the endpoints, leaving internal communication unauthenticated."
     },
     {
       "artifact_type": "Service Communication",
       "language": "Java",
       "negative_example": "// A service calls another using a client library\n// that has not been configured with any credentials.\nPolicyClient policyClient = new PolicyClient(\"http://policy-service\");\npolicyClient.getPolicies();",
-      "explanation": "L'utilizzo di un client SDK per comunicare con un altro servizio senza configurarlo con le credenziali necessarie (API key, token, certificati)."
+      "explanation": "Using a client SDK to communicate with another service without configuring it with the necessary credentials (API key, token, certificates)."
     },
     {
       "artifact_type": "Asynchronous Communication",
       "language": "Pseudo-code (Messaging)",
       "negative_example": "messageQueue.publish('customer.created', { customerId: '123' });\n// The message has no signature or identity token.",
-      "explanation": "Un messaggio inviato a una coda (es. ActiveMQ, RabbitMQ) non contiene alcuna informazione per verificare l'identità del mittente. Qualsiasi servizio con accesso alla coda potrebbe inviare messaggi fraudolenti."
+      "explanation": "A message sent to a queue (e.g., ActiveMQ, RabbitMQ) contains no information to verify the sender's identity. Any service with access to the queue could send fraudulent messages."
     },
     {
       "artifact_type": "Application Configuration",
       "language": "Java (Spring Security)",
       "negative_example": "@EnableWebSecurity\npublic class WebSecurityConfig extends WebSecurityConfigurerAdapter {\n    @Override\n    public void configure(WebSecurity web) {\n        web.ignoring().antMatchers(\"/internal/**\");\n    }\n}",
-      "explanation": "L'uso di `ignoring()` dice a Spring Security di ignorare completamente i percorsi specificati. Nessun contesto di sicurezza viene stabilito, rendendo impossibile qualsiasi forma di autenticazione o autorizzazione per queste rotte."
+      "explanation": "Using `ignoring()` tells Spring Security to completely ignore the specified paths. No security context is established, making any form of authentication or authorization for these routes impossible."
     },
     {
       "artifact_type": "API Gateway Configuration",
       "language": "YAML (Spring Cloud Gateway)",
       "negative_example": "spring:\n  cloud:\n    gateway:\n      routes:\n      - id: customer_route\n        uri: lb://customer-core\n        predicates:\n        - Path=/customers/**\n        # No filter to add authentication headers to the downstream request",
-      "explanation": "La configurazione del gateway instrada la richiesta ma non include un filtro per aggiungere un header di autenticazione (es. `Authorization: Bearer ...`) alla richiesta inviata al servizio `customer-core`."
+      "explanation": "The gateway configuration routes the request but does not include a filter to add an authentication header (e.g., `Authorization: Bearer ...`) to the request sent to the `customer-core` service."
     }
   ],
   "positive": [
@@ -74,68 +74,68 @@
       "artifact_type": "Application Configuration",
       "language": "Java (Spring Security)",
       "positive_example": "http.authorizeRequests().antMatchers(\"/api/internal/**\").hasAuthority(\"SCOPE_internal-service\")",
-      "explanation": "Gli endpoint interni richiedono uno specifico 'scope' o 'authority' (tipico di OAuth2), garantendo che solo i client (altri servizi) autorizzati possano invocarli."
+      "explanation": "Internal endpoints require a specific 'scope' or 'authority' (typical of OAuth2), ensuring that only authorized clients (other services) can invoke them."
     },
     {
       "artifact_type": "Service Communication",
       "language": "Java (RestTemplate)",
       "positive_example": "HttpHeaders headers = new HttpHeaders();\nheaders.setBearerAuth(serviceToken);\nHttpEntity<String> entity = new HttpEntity<>(headers);\nrestTemplate.exchange(\"http://policy-management/api/policies\", HttpMethod.GET, entity, String.class);",
-      "explanation": "La chiamata service-to-service include un token JWT (ottenuto tramite client credentials flow di OAuth2) nell'header Authorization, permettendo al servizio ricevente di autenticare il chiamante."
+      "explanation": "The service-to-service call includes a JWT token (obtained via OAuth2 client credentials flow) in the Authorization header, allowing the receiving service to authenticate the caller."
     },
     {
       "artifact_type": "Deployment Configuration",
       "language": "Kubernetes (Istio)",
       "positive_example": "apiVersion: \"security.istio.io/v1beta1\"\nkind: \"PeerAuthentication\"\nmetadata:\n  name: \"default\"\n  namespace: \"lakeside-mutual\"\nspec:\n  mtls:\n    mode: STRICT",
-      "explanation": "Un service mesh (Istio) viene configurato per applicare mTLS (Mutual TLS) in modalità STRICT. Tutto il traffico tra i pod nel namespace `lakeside-mutual` verrà automaticamente crittografato e autenticato tramite certificati."
+      "explanation": "A service mesh (Istio) is configured to enforce mTLS (Mutual TLS) in STRICT mode. All traffic between pods in the `lakeside-mutual` namespace will be automatically encrypted and authenticated via certificates."
     },
     {
       "artifact_type": "API Gateway Logic",
       "language": "Pseudo-code",
       "positive_example": "route '/internal-api' to 'risk-management-service'\n# Forward the original JWT from the user\nforward header 'Authorization'",
-      "explanation": "L'API Gateway inoltra il JWT dell'utente finale al servizio a monte. Questo permette al servizio interno di agire per conto dell'utente e di applicare controlli di autorizzazione basati sull'identità dell'utente originale."
+      "explanation": "The API Gateway forwards the end user's JWT to the upstream service. This allows the internal service to act on behalf of the user and apply authorization checks based on the original user's identity."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Node.js (Express)",
       "positive_example": "app.post('/events/new-customer', verifyServiceSignature, (req, res) => {\n  // Process verified event\n  eventBus.publish(req.body);\n});",
-      "explanation": "Viene utilizzato un middleware (`verifyServiceSignature`) per verificare una firma o un token (es. HMAC, JWT) nella richiesta, garantendo che l'evento provenga da una fonte attendibile."
+      "explanation": "A middleware (`verifyServiceSignature`) is used to verify a signature or token (e.g., HMAC, JWT) in the request, ensuring that the event comes from a trusted source."
     },
     {
       "artifact_type": "Application Configuration",
       "language": "Java (Spring Boot)",
       "positive_example": "spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://auth-server/.well-known/jwks.json",
-      "explanation": "Il servizio è configurato come 'resource server' OAuth2. Validerà automaticamente i token JWT in arrivo rispetto a un server di autorizzazione, proteggendo tutti gli endpoint di default."
+      "explanation": "The service is configured as an OAuth2 'resource server'. It will automatically validate incoming JWT tokens against an authorization server, protecting all endpoints by default."
     },
     {
       "artifact_type": "Asynchronous Communication",
       "language": "Pseudo-code (Messaging)",
       "positive_example": "const payload = { customerId: '123' };\nconst signedPayload = sign(payload, servicePrivateKey);\nmessageQueue.publish('customer.created', { payload, signature: signedPayload });",
-      "explanation": "Il payload del messaggio viene firmato digitalmente con la chiave privata del servizio mittente. Il servizio ricevente può quindi verificare la firma usando la chiave pubblica del mittente per garantire l'autenticità."
+      "explanation": "The message payload is digitally signed with the private key of the sending service. The receiving service can then verify the signature using the sender's public key to ensure authenticity."
     },
     {
       "artifact_type": "Service-to-Service Auth",
       "language": "API Key",
       "positive_example": "HttpHeaders headers = new HttpHeaders();\nheaders.set(\"X-API-Key\", serviceApiKey);\nHttpEntity<String> entity = new HttpEntity<>(headers);\n// ... restTemplate call",
-      "explanation": "Una forma semplice ma efficace di autenticazione service-to-service, dove un servizio chiamante si identifica usando una API key pre-condivisa. Richiede una gestione sicura delle chiavi."
+      "explanation": "A simple but effective form of service-to-service authentication, where a calling service identifies itself using a pre-shared API key. It requires secure management of the keys."
     },
     {
       "artifact_type": "API Gateway Configuration",
       "language": "YAML (Spring Cloud Gateway)",
       "positive_example": "spring:\n  cloud:\n    gateway:\n      routes:\n      - id: customer_route\n        uri: lb://customer-core\n        predicates:\n        - Path=/customers/**\n        filters:\n        - TokenRelay=",
-      "explanation": "Il filtro `TokenRelay` in Spring Cloud Gateway inoltra automaticamente il token OAuth2/JWT della richiesta in arrivo alla richiesta a monte, propagando l'identità di sicurezza."
+      "explanation": "The `TokenRelay` filter in Spring Cloud Gateway automatically forwards the OAuth2/JWT token from the incoming request to the upstream request, propagating the security identity."
     },
     {
       "artifact_type": "Application Configuration",
       "language": "Java (Spring Security)",
       "positive_example": "http.authorizeRequests()\n  .anyRequest().authenticated()\n  .and()\n  .oauth2ResourceServer(OAuth2ResourceServerConfigurer::jwt);",
-      "explanation": "Una configurazione robusta che richiede l'autenticazione per ogni richiesta e specifica che l'autenticazione deve avvenire tramite la validazione di un token JWT, applicando così una politica di 'deny-by-default'."
+      "explanation": "A robust configuration that requires authentication for every request and specifies that authentication must occur by validating a JWT token, thus applying a 'deny-by-default' policy."
     }
   ],
   "potential_risks": [
-    "Movimento laterale (Lateral Movement): un attaccante che compromette un servizio può attaccarne altri.",
-    "Spoofing di servizi: un servizio malevolo può impersonare uno legittimo per richiedere dati o eseguire azioni.",
-    "Iniezione di dati/eventi malevoli nel sistema.",
-    "Difficoltà nell'auditing e nel tracciamento delle richieste, poiché l'origine non è verificabile."
+    "Lateral Movement: an attacker who compromises one service can attack others.",
+    "Service Spoofing: a malicious service can impersonate a legitimate one to request data or perform actions.",
+    "Injection of malicious data/events into the system.",
+    "Difficulty in auditing and tracing requests, as the origin is not verifiable."
   ],
   "metadata": {
     "tags": [

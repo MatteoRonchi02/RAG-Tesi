@@ -1,6 +1,6 @@
 {
   "smell_name": "Insufficient Access Control",
-  "brief_description": "Questo smell si verifica quando un utente può accedere a risorse o eseguire azioni per cui non dovrebbe avere l'autorizzazione. In un'architettura a microservizi, questo spesso si manifesta come endpoint API che non verificano adeguatamente i permessi dell'utente o la sua titolarità sulla risorsa richiesta.",
+  "brief_description": "This smell occurs when a user can access resources or perform actions for which they should not have authorization. In a microservices architecture, this often manifests as API endpoints that do not adequately verify the user's permissions or their ownership of the requested resource.",
   "microservices_context": [
     "customer-core",
     "policy-management-backend"
@@ -10,61 +10,61 @@
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "negative_example": "public Customer getCustomerDetails(@PathVariable String customerId) {\n  return customerRepository.findById(customerId);\n}",
-      "explanation": "Questo endpoint recupera i dettagli di un cliente basandosi solo sull'ID. Qualsiasi utente autenticato può richiedere i dati di qualsiasi altro utente, semplicemente conoscendone l'ID. Manca un controllo per verificare che l'utente che effettua la richiesta sia il proprietario del profilo o un amministratore autorizzato."
+      "explanation": "This endpoint retrieves customer details based only on the ID. Any authenticated user can request the data of any other user, simply by knowing their ID. It lacks a check to verify that the user making the request is the owner of the profile or an authorized administrator."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "negative_example": "@PostMapping(\"/policies/{policyId}/update\")\npublic void updatePolicy(@PathVariable String policyId, @RequestBody PolicyUpdateDetails details) {\n  policyService.update(policyId, details);\n}",
-      "explanation": "Simile al primo caso, questo metodo permette a chiunque sia autenticato di aggiornare una polizza. Non viene verificato se l'utente è il titolare della polizza."
+      "explanation": "Similar to the first case, this method allows anyone who is authenticated to update a policy. It does not verify if the user is the policyholder."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "negative_example": "@GetMapping(\"/admin/all-customers\")\npublic List<Customer> getAllCustomers() {\n  return customerRepository.findAll();\n}",
-      "explanation": "L'URL suggerisce un accesso per amministratori, ma manca qualsiasi annotazione di sicurezza (come @PreAuthorize('hasRole(\"ADMIN\")')) per applicare effettivamente questa restrizione. Di conseguenza, qualsiasi utente autenticato potrebbe accedere a questa lista."
+      "explanation": "The URL suggests administrator access, but it lacks any security annotation (like @PreAuthorize('hasRole(\"ADMIN\")')) to actually enforce this restriction. Consequently, any authenticated user could access this list."
     },
     {
       "artifact_type": "Service Logic",
       "language": "Java",
       "negative_example": "public void deleteCustomer(String customerId) {\n  customerRepository.deleteById(customerId);\n}",
-      "explanation": "La logica di servizio per eliminare un utente non include controlli sui permessi. Se questo metodo viene esposto tramite un controller senza adeguati controlli, un utente potrebbe eliminare altri utenti."
+      "explanation": "The service logic for deleting a user does not include permission checks. If this method is exposed via a controller without proper checks, a user could delete other users."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "negative_example": "@RequestMapping(\"/api/customers\")\npublic class CustomerController {\n  // ... endpoints without method-level security\n}",
-      "explanation": "L'intera classe controller non ha annotazioni di sicurezza a livello di classe. Se la configurazione di sicurezza globale è troppo permissiva, tutti gli endpoint al suo interno diventano vulnerabili."
+      "explanation": "The entire controller class has no class-level security annotations. If the global security configuration is too permissive, all endpoints within it become vulnerable."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "negative_example": "@PutMapping(\"/customers/{id}\")\npublic Customer updateCustomer(@PathVariable String id, @RequestBody Customer customer) {\n  // Logic to update customer\n}",
-      "explanation": "Un endpoint di aggiornamento che non valida che l'utente autenticato corrisponda all'ID del cliente che si sta tentando di modificare."
+      "explanation": "An update endpoint that does not validate that the authenticated user matches the ID of the customer being modified."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "negative_example": "@GetMapping(\"/policies/export\")\npublic ResponseEntity<byte[]> exportAllPolicies() {\n  // ... logic to export all policies to a CSV file\n}",
-      "explanation": "Una funzionalità di export di massa che dovrebbe essere limitata solo a ruoli specifici (es. analisti, admin) ma è esposta senza controlli di ruolo."
+      "explanation": "A bulk export feature that should be limited only to specific roles (e.g., analysts, admins) but is exposed without role checks."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Node.js (Express)",
       "negative_example": "app.get('/api/user/:id/profile', (req, res) => {\n  const { id } = req.params;\n  db.findUserById(id).then(user => res.json(user));\n});",
-      "explanation": "Un endpoint Node.js che recupera un profilo utente. Manca un middleware di autorizzazione per verificare se `req.user.id` (l'utente autenticato) è uguale a `id` o se `req.user` ha un ruolo di amministratore."
+      "explanation": "A Node.js endpoint that retrieves a user profile. It lacks an authorization middleware to check if `req.user.id` (the authenticated user) is equal to `id` or if `req.user` has an administrator role."
     },
     {
       "artifact_type": "Configuration",
       "language": "Java (Spring Security)",
       "negative_example": "http.authorizeRequests().anyRequest().authenticated();",
-      "explanation": "Questa configurazione garantisce solo che l'utente sia autenticato, ma non implementa alcun controllo granulare basato su ruoli o permessi. È un controllo di accesso insufficiente per la maggior parte delle applicazioni reali."
+      "explanation": "This configuration only ensures that the user is authenticated, but it does not implement any granular, role-based or permission-based access control. It is insufficient access control for most real-world applications."
     },
     {
       "artifact_type": "Service Logic",
       "language": "Java",
       "negative_example": "public Claim getClaimDetails(String claimId) {\n  return claimRepository.findById(claimId);\n}",
-      "explanation": "La logica di business per recuperare i dettagli di un sinistro non verifica che l'utente che ha richiesto i dettagli sia il titolare della polizza associata al sinistro."
+      "explanation": "The business logic for retrieving claim details does not verify that the user who requested the details is the holder of the policy associated with the claim."
     }
   ],
   "positive": [
@@ -72,68 +72,68 @@
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "positive_example": "@GetMapping(\"/customers/{customerId}\")\n@PreAuthorize(\"#customerId == authentication.principal.username or hasRole('ADMIN')\")\npublic Customer getCustomerDetails(@PathVariable String customerId) {\n  return customerRepository.findById(customerId);\n}",
-      "explanation": "L'annotazione @PreAuthorize garantisce che solo il proprietario del profilo (il cui username corrisponde al customerId) o un utente con il ruolo 'ADMIN' possa accedere alla risorsa."
+      "explanation": "The @PreAuthorize annotation ensures that only the profile owner (whose username matches the customerId) or a user with the 'ADMIN' role can access the resource."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "positive_example": "@PostMapping(\"/policies/{policyId}/update\")\n@PreAuthorize(\"@policySecurityService.isOwner(authentication, #policyId)\")\npublic void updatePolicy(@PathVariable String policyId, @RequestBody PolicyUpdateDetails details) {\n  policyService.update(policyId, details);\n}",
-      "explanation": "L'autorizzazione è delegata a un servizio (`policySecurityService`) che contiene la logica per verificare se l'utente autenticato è il proprietario della polizza. Questo approccio è pulito e riutilizzabile."
+      "explanation": "Authorization is delegated to a service (`policySecurityService`) that contains the logic to verify if the authenticated user is the owner of the policy. This approach is clean and reusable."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "positive_example": "@GetMapping(\"/admin/all-customers\")\n@PreAuthorize(\"hasRole('ADMIN')\")\npublic List<Customer> getAllCustomers() {\n  return customerRepository.findAll();\n}",
-      "explanation": "L'accesso a questo endpoint è correttamente limitato ai soli utenti che possiedono il ruolo 'ADMIN'."
+      "explanation": "Access to this endpoint is correctly restricted to only users who have the 'ADMIN' role."
     },
     {
       "artifact_type": "Service Logic",
       "language": "Java",
       "positive_example": "public void deleteCustomer(String customerId, UserDetails currentUser) {\n  if (!currentUser.getUsername().equals(customerId)) {\n    throw new AccessDeniedException(\"Unauthorized\");\n  }\n  customerRepository.deleteById(customerId);\n}",
-      "explanation": "La logica di servizio ora richiede l'identità dell'utente corrente e solleva un'eccezione se non c'è corrispondenza, prevenendo eliminazioni non autorizzate."
+      "explanation": "The service logic now requires the current user's identity and throws an exception if there is no match, preventing unauthorized deletions."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "positive_example": "@RequestMapping(\"/api/customers\")\n@PreAuthorize(\"hasRole('USER')\")\npublic class CustomerController {\n  // ... endpoints\n}",
-      "explanation": "Applicando @PreAuthorize a livello di classe, si definisce un requisito di sicurezza di base (in questo caso, avere il ruolo 'USER') per tutti gli endpoint al suo interno."
+      "explanation": "By applying @PreAuthorize at the class level, a baseline security requirement (in this case, having the 'USER' role) is defined for all endpoints within it."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "positive_example": "@PutMapping(\"/customers/{id}\")\n@PreAuthorize(\"#id == authentication.name\")\npublic Customer updateCustomer(@PathVariable String id, @RequestBody Customer customer) {\n  // Logic to update customer\n}",
-      "explanation": "L'annotazione @PreAuthorize usa SpEL (Spring Expression Language) per confrontare l'ID nell'URL con il nome dell'utente autenticato."
+      "explanation": "The @PreAuthorize annotation uses SpEL (Spring Expression Language) to compare the ID in the URL with the name of the authenticated user."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Java (Spring Boot)",
       "positive_example": "@GetMapping(\"/policies/export\")\n@PreAuthorize(\"hasAnyRole('ANALYST', 'ADMIN')\")\npublic ResponseEntity<byte[]> exportAllPolicies() {\n  // ... logic to export\n}",
-      "explanation": "L'accesso alla funzionalità di export è correttamente limitato a più ruoli autorizzati."
+      "explanation": "Access to the export functionality is correctly restricted to multiple authorized roles."
     },
     {
       "artifact_type": "Controller Method",
       "language": "Node.js (Express)",
       "positive_example": "app.get('/api/user/:id/profile', ensureIsOwnerOrAdmin, (req, res) => {\n  const { id } = req.params;\n  db.findUserById(id).then(user => res.json(user));\n});",
-      "explanation": "Viene utilizzato un middleware (`ensureIsOwnerOrAdmin`) per eseguire i controlli di autorizzazione prima che la logica dell'endpoint venga eseguita. Questo separa le preoccupazioni di sicurezza dalla logica di business."
+      "explanation": "A middleware (`ensureIsOwnerOrAdmin`) is used to perform authorization checks before the endpoint's logic is executed. This separates security concerns from business logic."
     },
     {
       "artifact_type": "Configuration",
       "language": "Java (Spring Security)",
       "positive_example": "http.authorizeRequests()\n  .antMatchers(\"/admin/**\").hasRole(\"ADMIN\")\n  .antMatchers(\"/api/users/**\").hasRole(\"USER\")\n  .anyRequest().authenticated();",
-      "explanation": "Questa configurazione definisce regole di accesso granulari basate sui pattern degli URL, applicando requisiti di ruolo diversi per percorsi diversi."
+      "explanation": "This configuration defines granular access rules based on URL patterns, applying different role requirements for different paths."
     },
     {
       "artifact_type": "Service Logic",
       "language": "Java",
       "positive_example": "public Claim getClaimDetails(String claimId, UserDetails currentUser) {\n  Claim claim = claimRepository.findById(claimId);\n  if (!policySecurityService.isOwner(currentUser, claim.getPolicyId())){\n    throw new AccessDeniedException(\"Access Denied\");\n  }\n  return claim;\n}",
-      "explanation": "Il servizio verifica esplicitamente la titolarità della polizza associata al sinistro prima di restituire i dettagli, prevenendo la fuga di dati."
+      "explanation": "The service explicitly checks for ownership of the policy associated with the claim before returning the details, preventing data leakage."
     }
   ],
   "potential_risks": [
-    "Esposizione di dati sensibili (PII, dati finanziari).",
-    "Modifica o eliminazione non autorizzata di dati.",
-    "Accesso a funzionalità riservate agli amministratori (Privilege Escalation).",
-    "Violazione della privacy degli utenti e non conformità con normative come il GDPR."
+    "Exposure of sensitive data (PII, financial data).",
+    "Unauthorized modification or deletion of data.",
+    "Access to administrator-only functionality (Privilege Escalation).",
+    "Violation of user privacy and non-compliance with regulations like GDPR."
   ],
   "metadata": {
     "tags": [
@@ -146,4 +146,3 @@
     "impact": "High"
   }
 }
-
