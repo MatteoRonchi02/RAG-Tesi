@@ -1,6 +1,149 @@
-# NAME OF SECURITY SMELL
-Insufficient Access Control
-# DEFINITION OF SECURITY SMELL
-This security smell occurs when unauthorized users are able to access restricted resources or perform actions beyond their intended permissions. Access control, also known as authorization, is the mechanism by which an application grants or denies access to specific content and functionalities after a user has been authenticated. Insufficient authorization checks mean that even if a user is logged in, the system fails to properly verify whether they should have access to the specific resources or actions they are attempting to reach. This can manifest in various ways, including privilege escalation, where users with limited privileges gain access to higher-level functionalities or data. The consequences of broken access control can be severe, leading to data exposure, unauthorized modifications, or even complete system compromise. If we do not find the implementation of access controls (such as authorization annotations, validation middleware, or security policies) in the source code, it can be inferred that proper implementation of authorization rules is lacking. A focused code review can point out the absence or incorrect implementation of these mechanisms, making this smell deducible directly from the code.
-# EXAMPLE 1
+{
+  "smell_name": "Insufficient Access Control",
+  "brief_description": "Questo smell si verifica quando un utente può accedere a risorse o eseguire azioni per cui non dovrebbe avere l'autorizzazione. In un'architettura a microservizi, questo spesso si manifesta come endpoint API che non verificano adeguatamente i permessi dell'utente o la sua titolarità sulla risorsa richiesta.",
+  "microservices_context": [
+    "customer-core",
+    "policy-management-backend"
+  ],
+  "manifestations": [
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "negative_example": "public Customer getCustomerDetails(@PathVariable String customerId) {\n  return customerRepository.findById(customerId);\n}",
+      "explanation": "Questo endpoint recupera i dettagli di un cliente basandosi solo sull'ID. Qualsiasi utente autenticato può richiedere i dati di qualsiasi altro utente, semplicemente conoscendone l'ID. Manca un controllo per verificare che l'utente che effettua la richiesta sia il proprietario del profilo o un amministratore autorizzato."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "negative_example": "@PostMapping(\"/policies/{policyId}/update\")\npublic void updatePolicy(@PathVariable String policyId, @RequestBody PolicyUpdateDetails details) {\n  policyService.update(policyId, details);\n}",
+      "explanation": "Simile al primo caso, questo metodo permette a chiunque sia autenticato di aggiornare una polizza. Non viene verificato se l'utente è il titolare della polizza."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "negative_example": "@GetMapping(\"/admin/all-customers\")\npublic List<Customer> getAllCustomers() {\n  return customerRepository.findAll();\n}",
+      "explanation": "L'URL suggerisce un accesso per amministratori, ma manca qualsiasi annotazione di sicurezza (come @PreAuthorize('hasRole(\"ADMIN\")')) per applicare effettivamente questa restrizione. Di conseguenza, qualsiasi utente autenticato potrebbe accedere a questa lista."
+    },
+    {
+      "artifact_type": "Service Logic",
+      "language": "Java",
+      "negative_example": "public void deleteCustomer(String customerId) {\n  customerRepository.deleteById(customerId);\n}",
+      "explanation": "La logica di servizio per eliminare un utente non include controlli sui permessi. Se questo metodo viene esposto tramite un controller senza adeguati controlli, un utente potrebbe eliminare altri utenti."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "negative_example": "@RequestMapping(\"/api/customers\")\npublic class CustomerController {\n  // ... endpoints without method-level security\n}",
+      "explanation": "L'intera classe controller non ha annotazioni di sicurezza a livello di classe. Se la configurazione di sicurezza globale è troppo permissiva, tutti gli endpoint al suo interno diventano vulnerabili."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "negative_example": "@PutMapping(\"/customers/{id}\")\npublic Customer updateCustomer(@PathVariable String id, @RequestBody Customer customer) {\n  // Logic to update customer\n}",
+      "explanation": "Un endpoint di aggiornamento che non valida che l'utente autenticato corrisponda all'ID del cliente che si sta tentando di modificare."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "negative_example": "@GetMapping(\"/policies/export\")\npublic ResponseEntity<byte[]> exportAllPolicies() {\n  // ... logic to export all policies to a CSV file\n}",
+      "explanation": "Una funzionalità di export di massa che dovrebbe essere limitata solo a ruoli specifici (es. analisti, admin) ma è esposta senza controlli di ruolo."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Node.js (Express)",
+      "negative_example": "app.get('/api/user/:id/profile', (req, res) => {\n  const { id } = req.params;\n  db.findUserById(id).then(user => res.json(user));\n});",
+      "explanation": "Un endpoint Node.js che recupera un profilo utente. Manca un middleware di autorizzazione per verificare se `req.user.id` (l'utente autenticato) è uguale a `id` o se `req.user` ha un ruolo di amministratore."
+    },
+    {
+      "artifact_type": "Configuration",
+      "language": "Java (Spring Security)",
+      "negative_example": "http.authorizeRequests().anyRequest().authenticated();",
+      "explanation": "Questa configurazione garantisce solo che l'utente sia autenticato, ma non implementa alcun controllo granulare basato su ruoli o permessi. È un controllo di accesso insufficiente per la maggior parte delle applicazioni reali."
+    },
+    {
+      "artifact_type": "Service Logic",
+      "language": "Java",
+      "negative_example": "public Claim getClaimDetails(String claimId) {\n  return claimRepository.findById(claimId);\n}",
+      "explanation": "La logica di business per recuperare i dettagli di un sinistro non verifica che l'utente che ha richiesto i dettagli sia il titolare della polizza associata al sinistro."
+    }
+  ],
+  "positive": [
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "positive_example": "@GetMapping(\"/customers/{customerId}\")\n@PreAuthorize(\"#customerId == authentication.principal.username or hasRole('ADMIN')\")\npublic Customer getCustomerDetails(@PathVariable String customerId) {\n  return customerRepository.findById(customerId);\n}",
+      "explanation": "L'annotazione @PreAuthorize garantisce che solo il proprietario del profilo (il cui username corrisponde al customerId) o un utente con il ruolo 'ADMIN' possa accedere alla risorsa."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "positive_example": "@PostMapping(\"/policies/{policyId}/update\")\n@PreAuthorize(\"@policySecurityService.isOwner(authentication, #policyId)\")\npublic void updatePolicy(@PathVariable String policyId, @RequestBody PolicyUpdateDetails details) {\n  policyService.update(policyId, details);\n}",
+      "explanation": "L'autorizzazione è delegata a un servizio (`policySecurityService`) che contiene la logica per verificare se l'utente autenticato è il proprietario della polizza. Questo approccio è pulito e riutilizzabile."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "positive_example": "@GetMapping(\"/admin/all-customers\")\n@PreAuthorize(\"hasRole('ADMIN')\")\npublic List<Customer> getAllCustomers() {\n  return customerRepository.findAll();\n}",
+      "explanation": "L'accesso a questo endpoint è correttamente limitato ai soli utenti che possiedono il ruolo 'ADMIN'."
+    },
+    {
+      "artifact_type": "Service Logic",
+      "language": "Java",
+      "positive_example": "public void deleteCustomer(String customerId, UserDetails currentUser) {\n  if (!currentUser.getUsername().equals(customerId)) {\n    throw new AccessDeniedException(\"Unauthorized\");\n  }\n  customerRepository.deleteById(customerId);\n}",
+      "explanation": "La logica di servizio ora richiede l'identità dell'utente corrente e solleva un'eccezione se non c'è corrispondenza, prevenendo eliminazioni non autorizzate."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "positive_example": "@RequestMapping(\"/api/customers\")\n@PreAuthorize(\"hasRole('USER')\")\npublic class CustomerController {\n  // ... endpoints\n}",
+      "explanation": "Applicando @PreAuthorize a livello di classe, si definisce un requisito di sicurezza di base (in questo caso, avere il ruolo 'USER') per tutti gli endpoint al suo interno."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "positive_example": "@PutMapping(\"/customers/{id}\")\n@PreAuthorize(\"#id == authentication.name\")\npublic Customer updateCustomer(@PathVariable String id, @RequestBody Customer customer) {\n  // Logic to update customer\n}",
+      "explanation": "L'annotazione @PreAuthorize usa SpEL (Spring Expression Language) per confrontare l'ID nell'URL con il nome dell'utente autenticato."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Java (Spring Boot)",
+      "positive_example": "@GetMapping(\"/policies/export\")\n@PreAuthorize(\"hasAnyRole('ANALYST', 'ADMIN')\")\npublic ResponseEntity<byte[]> exportAllPolicies() {\n  // ... logic to export\n}",
+      "explanation": "L'accesso alla funzionalità di export è correttamente limitato a più ruoli autorizzati."
+    },
+    {
+      "artifact_type": "Controller Method",
+      "language": "Node.js (Express)",
+      "positive_example": "app.get('/api/user/:id/profile', ensureIsOwnerOrAdmin, (req, res) => {\n  const { id } = req.params;\n  db.findUserById(id).then(user => res.json(user));\n});",
+      "explanation": "Viene utilizzato un middleware (`ensureIsOwnerOrAdmin`) per eseguire i controlli di autorizzazione prima che la logica dell'endpoint venga eseguita. Questo separa le preoccupazioni di sicurezza dalla logica di business."
+    },
+    {
+      "artifact_type": "Configuration",
+      "language": "Java (Spring Security)",
+      "positive_example": "http.authorizeRequests()\n  .antMatchers(\"/admin/**\").hasRole(\"ADMIN\")\n  .antMatchers(\"/api/users/**\").hasRole(\"USER\")\n  .anyRequest().authenticated();",
+      "explanation": "Questa configurazione definisce regole di accesso granulari basate sui pattern degli URL, applicando requisiti di ruolo diversi per percorsi diversi."
+    },
+    {
+      "artifact_type": "Service Logic",
+      "language": "Java",
+      "positive_example": "public Claim getClaimDetails(String claimId, UserDetails currentUser) {\n  Claim claim = claimRepository.findById(claimId);\n  if (!policySecurityService.isOwner(currentUser, claim.getPolicyId())){\n    throw new AccessDeniedException(\"Access Denied\");\n  }\n  return claim;\n}",
+      "explanation": "Il servizio verifica esplicitamente la titolarità della polizza associata al sinistro prima di restituire i dettagli, prevenendo la fuga di dati."
+    }
+  ],
+  "potential_risks": [
+    "Esposizione di dati sensibili (PII, dati finanziari).",
+    "Modifica o eliminazione non autorizzata di dati.",
+    "Accesso a funzionalità riservate agli amministratori (Privilege Escalation).",
+    "Violazione della privacy degli utenti e non conformità con normative come il GDPR."
+  ],
+  "metadata": {
+    "tags": [
+      "Access Control",
+      "Authorization",
+      "OWASP A01:2021",
+      "Spring Security"
+    ],
+    "remediation_difficulty": "Medium",
+    "impact": "High"
+  }
+}
 

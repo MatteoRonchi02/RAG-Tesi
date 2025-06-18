@@ -1,0 +1,151 @@
+{
+  "smell_name": "Publicly Accessible Microservices",
+  "brief_description": "Questo smell si verifica quando microservizi interni, che non dovrebbero essere esposti a Internet, sono raggiungibili pubblicamente. Questi servizi (es. database, message queue, servizi di core business) diventano un bersaglio diretto per gli attaccanti se non sono adeguatamente protetti a livello di rete.",
+  "microservices_context": [
+    "customer-core",
+    "policy-management-backend",
+    "activemq",
+    "risk-management-nodejs"
+  ],
+  "manifestations": [
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Docker Compose (YAML)",
+      "negative_example": "services:\n  customer-core:\n    image: lakesidemutual/customer-core\n    ports:\n      - \"8081:8080\"",
+      "explanation": "Il servizio `customer-core`, che potrebbe essere un servizio interno, mappa la porta 8080 del container sulla porta 8081 della macchina host. Se l'host ha un IP pubblico, il servizio diventa accessibile da Internet."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Docker Compose (YAML)",
+      "negative_example": "services:\n  activemq:\n    image: rmohr/activemq\n    ports:\n      - \"8161:8161\"\n      - \"61616:61616\"",
+      "explanation": "La console di amministrazione di ActiveMQ (porta 8161) e il protocollo di comunicazione (61616) sono esposti pubblicamente. Un attaccante potrebbe tentare di accedere alla console con credenziali di default o sfruttare vulnerabilità del protocollo."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Kubernetes Service (YAML)",
+      "negative_example": "apiVersion: v1\nkind: Service\nmetadata:\n  name: policy-management-svc\nspec:\n  type: LoadBalancer\n  selector:\n    app: policy-management\n  ports:\n    - protocol: TCP\n      port: 80\n      targetPort: 8080",
+      "explanation": "L'utilizzo di `type: LoadBalancer` in un ambiente cloud provisiona un bilanciatore di carico pubblico con un indirizzo IP accessibile da Internet. Questo è corretto per un API Gateway, ma errato per un servizio interno."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Docker Compose (YAML)",
+      "negative_example": "services:\n  risk-management-nodejs:\n    image: lakesidemutual/risk-management-nodejs\n    ports:\n      - \"3000:3000\"",
+      "explanation": "Anche se questo servizio Node.js potrebbe essere destinato a un uso interno per analisi di rischio, esporlo tramite la mappatura delle porte lo rende un potenziale punto di ingresso per attacchi."
+    },
+    {
+      "artifact_type": "Dockerfile",
+      "language": "Dockerfile",
+      "negative_example": "FROM tomcat:9.0\nEXPOSE 8080",
+      "explanation": "Sebbene `EXPOSE` non pubblichi la porta da solo, documenta l'intenzione di esporla. Se combinato con `docker run -P`, pubblicherebbe la porta 8080 su una porta casuale dell'host, rendendo il servizio potenzialmente accessibile."
+    },
+    {
+      "artifact_type": "Cloud Configuration",
+      "language": "Firewall Rule (Pseudo-code)",
+      "negative_example": "firewall-rules create allow-all --source-ranges 0.0.0.0/0 --target-tags internal-service",
+      "explanation": "Una regola firewall eccessivamente permissiva che consente traffico da qualsiasi indirizzo IP (`0.0.0.0/0`) verso i microservizi interni, bypassando la protezione perimetrale."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Docker Compose (YAML)",
+      "negative_example": "services:\n  database:\n    image: postgres\n    ports:\n      - \"5432:5432\"",
+      "explanation": "Esporre direttamente la porta di un database a Internet è un rischio di sicurezza estremamente elevato. I database dovrebbero essere accessibili solo attraverso la rete privata dei microservizi."
+    },
+    {
+      "artifact_type": "Kubernetes Service (YAML)",
+      "language": "Kubernetes Service (YAML)",
+      "negative_example": "apiVersion: v1\nkind: Service\nmetadata:\n  name: customer-db-svc\nspec:\n  type: NodePort\n  ports:\n  - port: 5432\n    nodePort: 30054",
+      "explanation": "L'uso di `type: NodePort` espone il servizio su una porta specifica di ogni nodo del cluster. Se i nodi hanno IP pubblici, il servizio (in questo caso un database) diventa accessibile dall'esterno."
+    },
+    {
+      "artifact_type": "Application Configuration",
+      "language": "Java (Spring Boot)",
+      "negative_example": "server.address=0.0.0.0",
+      "explanation": "In `application.properties`, configurare `server.address` a `0.0.0.0` fa sì che l'applicazione si leghi a tutte le interfacce di rete. Se eseguita al di fuori di un container su una macchina con un IP pubblico, l'applicazione sarà direttamente esposta."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Docker Compose (YAML)",
+      "negative_example": "version: '3.7'\nservices:\n  api_gateway:\n    ...\n  customer_service:\n    ...\n    # No network defined, uses default bridge network",
+      "explanation": "Se non si definisce una rete personalizzata, Docker Compose usa una rete bridge di default. Se un container è collegato a più reti, inclusa una pubblica, potrebbe agire da ponte involontario verso servizi interni."
+    }
+  ],
+  "positive_examples": [
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Docker Compose (YAML)",
+      "positive_example": "services:\n  customer-core:\n    image: lakesidemutual/customer-core\n    # No 'ports' section. Communication happens over the internal docker network.",
+      "explanation": "Omettendo la sezione `ports`, il servizio `customer-core` è raggiungibile dagli altri servizi nella stessa rete Docker (es. `api-gateway`) ma non è esposto alla macchina host o a Internet."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Docker Compose (YAML)",
+      "positive_example": "services:\n  activemq:\n    image: rmohr/activemq\n    # Ports are not exposed to the host machine.",
+      "explanation": "La console di ActiveMQ e le sue porte di comunicazione non sono esposte. I microservizi comunicano con esso tramite il suo nome di servizio sulla rete interna di Docker."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Kubernetes Service (YAML)",
+      "positive_example": "apiVersion: v1\nkind: Service\nmetadata:\n  name: policy-management-svc\nspec:\n  type: ClusterIP\n  selector:\n    app: policy-management\n  ports:\n    - protocol: TCP\n      port: 80\n      targetPort: 8080",
+      "explanation": "Usando `type: ClusterIP`, il servizio ottiene un indirizzo IP interno al cluster Kubernetes, rendendolo accessibile solo da altri pod e servizi all'interno dello stesso cluster, ma non dall'esterno."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Docker Compose (YAML)",
+      "positive_example": "services:\n  risk-management-nodejs:\n    image: lakesidemutual/risk-management-nodejs\n    expose:\n      - \"3000\"",
+      "explanation": "L'istruzione `expose` rende la porta accessibile ad altri servizi sulla stessa rete Docker senza pubblicarla sull'host. È una buona pratica per documentare quali porte vengono usate internamente."
+    },
+    {
+      "artifact_type": "Cloud Configuration",
+      "language": "Firewall Rule (Pseudo-code)",
+      "positive_example": "firewall-rules create allow-internal --source-tags internal-network --target-tags internal-service",
+      "explanation": "Una regola firewall restrittiva che permette la comunicazione solo tra risorse che condividono lo stesso tag di rete interna, bloccando tutto il traffico esterno."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Docker Compose (YAML)",
+      "positive_example": "networks:\n  lakeside_net:\n\nservices:\n  api_gateway:\n    networks:\n      - lakeside_net\n    ports:\n      - \"80:8080\"\n  customer_service:\n    networks:\n      - lakeside_net",
+      "explanation": "Viene definita una rete personalizzata (`lakeside_net`). Solo l'API Gateway espone una porta. Il `customer_service` comunica con il gateway attraverso la rete privata, rimanendo isolato."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Kubernetes (YAML)",
+      "positive_example": "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: api-ingress\nspec:\n  rules:\n  - http:\n      paths:\n      - path: /customers\n        pathType: Prefix\n        backend:\n          service:\n            name: api-gateway-svc\n            port:\n              number: 80",
+      "explanation": "Un oggetto Ingress gestisce l'accesso esterno, indirizzando il traffico a un unico punto di ingresso (API Gateway), che poi lo smista ai servizi interni di tipo ClusterIP."
+    },
+    {
+      "artifact_type": "Kubernetes Service (YAML)",
+      "language": "Kubernetes Service (YAML)",
+      "positive_example": "apiVersion: v1\nkind: Service\nmetadata:\n  name: customer-db-svc\nspec:\n  type: ClusterIP\n  ports:\n  - port: 5432",
+      "explanation": "Il servizio del database è di tipo `ClusterIP`, il che significa che è raggiungibile solo tramite il suo IP interno al cluster dai microservizi che ne hanno bisogno (es. `customer-core`)."
+    },
+    {
+      "artifact_type": "Cloud Configuration",
+      "language": "VPC (Virtual Private Cloud)",
+      "positive_example": "resource \"aws_subnet\" \"private\" {\n  vpc_id     = aws_vpc.main.id\n  # No route to an Internet Gateway\n}",
+      "explanation": "I microservizi interni e i database vengono deployati in una subnet privata all'interno di una VPC. Questa subnet non ha una rotta verso un Internet Gateway, impedendo qualsiasi comunicazione diretta con Internet."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "Kubernetes NetworkPolicy",
+      "positive_example": "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: db-access-policy\nspec:\n  podSelector:\n    matchLabels:\n      app: database\n  ingress:\n  - from:\n    - podSelector:\n        matchLabels:\n          app: customer-core",
+      "explanation": "Una NetworkPolicy limita il traffico in entrata al pod del database, permettendo connessioni solo dai pod con l'etichetta `app: customer-core`. Questo fornisce un isolamento di rete a livello di applicazione."
+    }
+  ],
+  "potential_risks": [
+    "Accesso diretto e non autorizzato a database e message broker.",
+    "Bypass dei controlli di sicurezza implementati nell'API Gateway.",
+    "Aumento della superficie di attacco dell'applicazione.",
+    "Sfruttamento di vulnerabilità note in servizi di terze parti (es. ActiveMQ, Redis) non aggiornati."
+  ],
+  "metadata": {
+    "tags": [
+      "Network Security",
+      "Configuration",
+      "Docker",
+      "Kubernetes",
+      "OWASP A05:2021"
+    ],
+    "remediation_difficulty": "Low",
+    "impact": "Critical"
+  }
+}
