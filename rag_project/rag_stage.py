@@ -129,6 +129,23 @@ def get_code_chunks(code_documents: list[Document]) -> list[Document]:
     print(f"Source code split into {len(all_chunks)} chunks.")
     return all_chunks
 
+def extract_services_from_llm_output(answer: str) -> list[str]:
+    lines = answer.splitlines()
+    services = []
+    in_service_section = False
+
+    for line in lines:
+        if "Analyzed services:" in line:
+            in_service_section = True
+            continue
+        if in_service_section:
+            if line.strip().startswith("-"):
+                service_name = line.strip().lstrip("-").strip()
+                services.append(service_name)
+            elif line.strip() == "":
+                break 
+    return services
+
 print("--------------------Initialization embeddings in progress--------------------")
 try:
     embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
@@ -148,8 +165,8 @@ prompt_template_str = """Instructions:
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
 6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - Make a list of analysed services.
-   - For each analyzed file path, create a section, divided by a line of -.
+   - Make a list of services that contains security smell in that way: "Analyzed services: \n - [name of service]".
+   - For each analyzed file path, create a section, divided by a line of #.
    - Under each file path, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
      a. The line of code or block that contains the smell.
@@ -290,7 +307,7 @@ while True:
 
     # ("\n--- Prompt Finale (prima dell'invio all'LLM) ---")
     # è commentato perchè è lungo, usarlo come debug
-    # print(final_prompt_string) 
+    print(final_prompt_string) 
     print(f"(Prompt length: {len(final_prompt_string)} characters)")
 
 
@@ -309,3 +326,36 @@ while True:
     except Exception as e:
         print(f"Error during LLM invocation: {e}")
         print("Make sure that the LLM model is configured correctly and that the API key is valid and enabled.")
+
+    ground_truth = {
+        "customer-core": ["publicly accessible microservice"],
+        "customer-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
+        "customer-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
+        "customer-self-service-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
+        "customer-self-service-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
+        "policy-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
+        "policy-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
+        "spring-boot-admin": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic"],
+        "risk-management-server": ["publicly accessible microservice", "hardcoded secrets"]
+    }
+
+    smell_name = user_query.lower()
+    predicted_services = extract_services_from_llm_output(answer)
+    #test
+    print(">>> predicted_services:", predicted_services)
+
+    predicted = {(s, smell_name) for s in predicted_services}
+    true_labels = {(s, smell_name) for s, smells in ground_truth.items() if smell_name in smells}
+    #test
+    print(">>> predicted set:", predicted)
+    print(">>> true_labels set:", true_labels)
+
+    TP = len(predicted & true_labels)
+    FP = len(predicted - true_labels)
+    FN = len(true_labels - predicted)
+
+    precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+    recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+    print(f"Precision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}")
