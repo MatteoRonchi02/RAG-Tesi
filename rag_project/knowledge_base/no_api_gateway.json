@@ -9,178 +9,119 @@
   ],
   "manifestations": [
     {
-      "artifact_type": "source code",
-      "language": "JavaScript",
-      "negative_example": "// Browser calls two services directly.\nfetch('http://product-service/api/products')\n  .then(r => r.json()).then(data => console.log('Products:', data));\n\nfetch('http://order-service/api/orders')\n  .then(r => r.json()).then(data => console.log('Orders:', data));",
-      "explanation": "Your front-end has to know every service URL and stitch together responses—that is what an API gateway should handle."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Python",
-      "negative_example": "# Client with hardcoded service map.\nSERVICE_URLS = {\n  'product': 'http://product-service/api/products',\n  'order':   'http://order-service/api/orders',\n  'payment': 'http://payment-service/api/payments'\n}\n\nurl = SERVICE_URLS['product']\n# Client calls this URL directly…",
-      "explanation": "Embedding service locations in client logic makes every change a client-release event."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Java",
-      "negative_example": "// Each microservice checks auth in its controller.\n@RestController\npublic class ProductController {\n    @GetMapping(\"/api/products\")\n    public ResponseEntity<?> getProducts(@RequestHeader(\"Authorization\") String token) {\n        if (!isValidToken(token)) {\n            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();\n        }\n        // …return products\n    }\n}",
-      "explanation": "Duplicated authentication code in every service instead of centralizing it in one gateway."
-    },
-    {
-      "artifact_type": "command-line interaction",
-      "language": "Shell",
-      "negative_example": "# Client hits specific instances directly, no load balancer.\ncurl http://product-service-instance-1/api/products\ncurl http://product-service-instance-2/api/products",
-      "explanation": "By talking to each instance, the client misses out on load balancing, routing, and failover that a gateway would provide."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Java",
-      "negative_example": "// Service discovery logic in each microservice.\n@Autowired\nprivate DiscoveryClient discoveryClient;\n\npublic String getProductUrl() {\n    List<ServiceInstance> instances = discoveryClient.getInstances(\"product-service\");\n    if (instances != null && !instances.isEmpty()) {\n        return instances.get(0).getUri().toString();\n    } else {\n        return null;\n    }\n}",
-      "explanation": "Each service implements discovery, duplicating the gateway's routing role."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "JavaScript",
-      "negative_example": "// Hardcoded URL for the user service.\nasync function fetchUserData(userId) {\n  const response = await fetch(`http://user-service:8080/users/${userId}`);\n  return response.json();\n}",
-      "explanation": "Directly referencing the user service endpoint makes the front-end brittle to changes in the user service's location or port."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Vue",
-      "negative_example": "// Vue component calling multiple services directly.\nexport default {\n  data() {\n    return {\n      products: [],\n      orders: []\n    }\n  },\n  mounted() {\n    fetch('http://product-service/api/products').then(r => r.json()).then(data => this.products = data);\n    fetch('http://order-service/api/orders').then(r => r.json()).then(data => this.orders = data);\n  }\n}",
-      "explanation": "The Vue component is responsible for knowing and orchestrating calls to multiple backend services, which should be handled by an API Gateway."
-    },
-    {
-      "artifact_type": "HTML",
-      "language": "HTML",
-      "negative_example": "<!-- HTML form directly submitting to multiple service endpoints. -->\n<form action=\"http://order-service/createOrder\" method=\"POST\">\n  <input type=\"hidden\" name=\"productId\" value=\"123\">\n  <button type=\"submit\">Create Order</button>\n</form>\n\n<form action=\"http://payment-service/processPayment\" method=\"POST\">\n  <input type=\"hidden\" name=\"orderId\" value=\"456\">\n  <button type=\"submit\">Process Payment</button>\n</form>",
-      "explanation": "The HTML form makes separate requests to different microservices. The API Gateway should provide a single endpoint for creating an order and processing payment."
-    },
-    {
-      "artifact_type": "Dockerfile",
-      "language": "Dockerfile",
-      "negative_example": "# Dockerfile for a client service with hardcoded service URLs.\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nENV PRODUCT_SERVICE_URL=http://product-service:8080\nENV ORDER_SERVICE_URL=http://order-service:8080\nCMD [\"npm\", \"start\"]",
-      "explanation": "Environment variables define hardcoded URLs for other services, illustrating the lack of indirection provided by an API Gateway. If the services change their addresses, this client needs to be rebuilt and redeployed."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Java",
-      "negative_example": "//Rate limiting implemented independently in each service.\n@RestController\npublic class OrderController {\n\n    private final RateLimiter rateLimiter = RateLimiter.create(10); // 10 requests per second\n\n    @PostMapping(\"/orders\")\n    public ResponseEntity<?> createOrder() {\n        if (rateLimiter.tryAcquire()) {\n            // ... process order\n            return ResponseEntity.ok(\"Order created\");\n        } else {\n            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(\"Too many requests\");\n        }\n    }\n}",
-      "explanation": "Each microservice has its own rate limiting logic. An API gateway would allow central management of rate limiting for all services."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "JavaScript",
-      "negative_example": "// CORS configuration duplicated in multiple services.\nconst express = require('express');\nconst cors = require('cors');\nconst app = express();\n\napp.use(cors()); // Enable CORS for all origins\n\napp.get('/products', (req, res) => {\n  res.json([{ id: 1, name: 'Product 1' }]);\n});\n\napp.listen(3000, () => {\n  console.log('Product service running on port 3000');\n});",
-      "explanation": "CORS (Cross-Origin Resource Sharing) configuration is repeated in each service.  An API Gateway could centralize CORS handling."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Vue",
-      "negative_example": "// Vue component directly calling a paginated API without gateway mediation.\nexport default {\n  data() {\n    return {\n      products: [],\n      page: 1,\n      pageSize: 10,\n    }\n  },\n  mounted() {\n    this.fetchProducts();\n  },\n  methods: {\n    async fetchProducts() {\n      const response = await fetch(`http://product-service/api/products?page=${this.page}&pageSize=${this.pageSize}`);\n      this.products = await response.json();\n    }\n  }\n}",
-      "explanation": "The Vue component constructs the pagination URL directly, instead of delegating the composition to a centralized API Gateway that might perform additional transformations or aggregations."
-    },
-    {
-      "artifact_type": "HTML",
-      "language": "HTML",
-      "negative_example": "<!--  HTML making direct service calls with different authentication schemes -->\n<script>\n  async function getProduct() {\n    const token = localStorage.getItem('product-token');\n    const response = await fetch('http://product-service/api/products/1', {\n      headers: {\n        'Authorization': `Bearer ${token}`\n      }\n    });\n    console.log(await response.json());\n  }\n\n  async function getOrder() {\n    const apiKey = 'ORDER_API_KEY';\n    const response = await fetch('http://order-service/api/orders/1', {\n      headers: {\n        'X-API-Key': apiKey\n      }\n    });\n    console.log(await response.json());\n  }\n\n  getProduct();\n  getOrder();\n</script>",
-      "explanation": "The HTML script demonstrates the client needing to manage different authentication schemes for different services.  An API Gateway could handle the authentication and authorization consistently."
-    },
-    {
-      "artifact_type": "Dockerfile",
-      "language": "Dockerfile",
-      "negative_example": "# Dockerfile showing a lack of centralized configuration management.\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nENV PRODUCT_SERVICE_URL=http://product-service:8080\nENV ORDER_SERVICE_URL=http://order-service:8081\nENV PAYMENT_SERVICE_URL=http://payment-service:8082\nCMD [\"npm\", \"start\"]",
-      "explanation": "This Dockerfile shows how client services directly configure URLs for multiple microservices, missing the simplification and centralized configuration an API Gateway offers."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Java",
-      "negative_example": "// Microservice directly exposing database details to the client.\n@RestController\npublic class ProductController {\n    @Autowired\n    private JdbcTemplate jdbcTemplate;\n\n    @GetMapping(\"/api/products\")\n    public List<Map<String, Object>> getProducts() {\n        String sql = \"SELECT id, name, price FROM products\";\n        return jdbcTemplate.queryForList(sql);\n    }\n}",
-      "explanation": "The microservice directly queries the database and exposes the database schema in the response.  An API Gateway could decouple the client from the internal database structure."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "JavaScript",
-      "negative_example": "// Direct Service-to-Service Communication without an API Gateway\nasync function processOrder(order) {\n    const productServiceUrl = 'http://product-service:3001/products';\n    const inventoryServiceUrl = 'http://inventory-service:3002/inventory';\n\n    // Get product details\n    const productResponse = await fetch(`${productServiceUrl}/${order.productId}`);\n    const product = await productResponse.json();\n\n    // Update inventory\n    const inventoryResponse = await fetch(`${inventoryServiceUrl}/${order.productId}`, {\n        method: 'PUT',\n        body: JSON.stringify({ quantity: order.quantity })\n    });\n    const inventory = await inventoryResponse.json();\n\n    return { product, inventory };\n}",
-      "explanation": "This code shows direct service-to-service communication, which can lead to increased complexity and decreased maintainability. An API Gateway would simplify this interaction."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Vue",
-      "negative_example": "// Vue component directly handling multiple microservice responses.\nexport default {\n  data() {\n    return {\n      productDetails: null,\n      inventoryLevel: null,\n    };\n  },\n  async mounted() {\n    try {\n      const productResponse = await fetch('http://product-service/api/products/1');\n      this.productDetails = await productResponse.json();\n      const inventoryResponse = await fetch('http://inventory-service/api/inventory/1');\n      this.inventoryLevel = await inventoryResponse.json();\n    } catch (error) {\n      console.error('Error fetching data:', error);\n    }\n  },\n};",
-      "explanation": "This Vue component fetches data from multiple microservices and handles the responses separately. An API Gateway could aggregate these responses into a single payload."
-    },
-    {
-      "artifact_type": "HTML",
-      "language": "HTML",
-      "negative_example": "<!-- HTML form with direct calls to multiple microservices -->\n<form action=\"http://user-service/register\" method=\"POST\">\n  <label for=\"username\">Username:</label>\n  <input type=\"text\" id=\"username\" name=\"username\"><br><br>\n  <label for=\"password\">Password:</label>\n  <input type=\"password\" id=\"password\" name=\"password\"><br><br>\n  <button type=\"submit\">Register</button>\n</form>\n\n<form action=\"http://email-service/send-verification\" method=\"POST\">\n  <label for=\"email\">Email:</label>\n  <input type=\"email\" id=\"email\" name=\"email\"><br><br>\n  <button type=\"submit\">Send Verification</button>\n</form>",
-      "explanation": "This HTML code shows two separate forms directly calling different microservices (user-service and email-service). An API Gateway would provide a single registration endpoint."
-    },
-    {
-      "artifact_type": "Dockerfile",
-      "language": "Dockerfile",
-      "negative_example": "# Dockerfile without centralized configuration.\nFROM node:14\nWORKDIR /app\nCOPY package*.json .\nRUN npm install\nCOPY .\nENV USER_SERVICE_URL=http://user-service:3001\nENV ORDER_SERVICE_URL=http://order-service:3002\nCMD [\"node\", \"app.js\"]",
-      "explanation": "This Dockerfile configures multiple microservice URLs as environment variables. An API Gateway would provide a single, configurable endpoint."
-    },
-    {
-      "artifact_type": "configuration",
+      "artifact_type": "Kubernetes Service Definition (Hypothetical Bad Practice)",
       "language": "YAML",
-      "negative_example": "# Kubernetes Service without central ingress or gateway.\napiVersion: v1\nkind: Service\nmetadata:\n  name: product-service\nspec:\n  ports:\n    - port: 80\n      targetPort: 8080\n  selector:\n    app: product\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: order-service\nspec:\n  ports:\n    - port: 80\n      targetPort: 8080\n  selector:\n    app: order",
-      "explanation": "Each service is exposed individually via Kubernetes services, rather than through a central ingress or API Gateway."
-    }, 
-    {
-      "artifact_type": "configuration",
-      "language": "JSON",
-      "negative_example": "{\n  \"services\": {\n    \"user\": \"http://user-service:3000\",\n    \"auth\": \"http://auth-service:3001\",\n    \"inventory\": \"http://inventory-service:3002\"\n  }\n}",
-      "explanation": "Service endpoints are hardcoded into configuration files, forcing clients or other services to rely on internal service locations instead of a gateway."
+      "negative_example": "apiVersion: v1\nkind: Service\nmetadata:\n  name: cartservice-external\n  labels:\n    app: cartservice\nspec:\n  type: LoadBalancer\n  selector:\n    app: cartservice\n  ports:\n  - name: grpc\n    port: 7070\n    targetPort: 7070",
+      "explanation": "Exposing the `cartservice` directly as a `LoadBalancer` to external clients. This makes an internal service publicly accessible, increasing the attack surface and violating the principle of hiding internal complexity behind a gateway., "
     },
     {
-      "artifact_type": "source code",
+      "artifact_type": "Node.js Code (Payments Service - Hypothetical External Exposure)",
+      "language": "Node.js",
+      "negative_example": "// paymentservice/server.js\nconst express = require('express');\nconst app = express();\nconst PORT = process.env.PORT || 8080;\napp.listen(PORT, () => {\n  console.log(`Payments service listening on port ${PORT} directly exposed.`);\n});\n//... no API gateway in front, directly accessible from outside",
+      "explanation": "If the `paymentservice` (Node.js) were directly exposed to the internet without an API Gateway, it would handle external requests directly. This means each microservice would need to implement its own security, rate limiting, and other cross-cutting concerns, leading to code duplication and inconsistency."
+    },
+    {
+      "artifact_type": "Python Code (Email Service - Hypothetical Client-Side Aggregation)",
+      "language": "Python",
+      "negative_example": "import requests\n\ndef get_order_details(order_id):\n    # Client-side logic to fetch from multiple services\n    user_info = requests.get(f'http://userservice.example.com/users/{order_id}').json()\n    items = requests.get(f'http://productservice.example.com/orders/{order_id}/items').json()\n    payment_status = requests.get(f'http://paymentservice.example.com/orders/{order_id}/status').json()\n    return {'user': user_info, 'items': items, 'payment': payment_status}",
+      "explanation": "A hypothetical client (e.g., a batch processing script or another internal service acting as an external client) directly calls multiple services (`userservice`, `productservice`, `paymentservice`) to aggregate data for an email. This increases client complexity and latency due to multiple round trips."
+    },
+    {
+      "artifact_type": "C# Code (Cart Service - Hypothetical Direct Client Access)",
+      "language": "C#",
+      "negative_example": "// In CartService.cs, if it directly handled HTTP requests from external clients:\npublic class CartController : ControllerBase\n{\n    [HttpPost(\"cart/{userId}\")]\n    public IActionResult AddItem(string userId, CartItem item)\n    {\n        // Direct handling of external HTTP requests without gateway\n        // This service would need to implement its own auth, rate limiting etc.\n        return Ok();\n    }\n}",
+      "explanation": "If the `cartservice` (C#) were designed to directly expose REST endpoints to external clients, it would necessitate implementing security and other cross-cutting concerns within the service itself, instead of offloading them to a centralized API Gateway."
+    },
+    {
+      "artifact_type": "Java Code (Ad Service - Hypothetical Direct External Exposure)",
       "language": "Java",
-      "negative_example": "// Each service has its own isolated logging setup.\n@RestController\npublic class PaymentController {\n    private static final Logger logger = LoggerFactory.getLogger(PaymentController.class);\n\n    @PostMapping(\"/api/pay\")\n    public ResponseEntity<?> pay(@RequestBody Payment payment) {\n        logger.info(\"Payment started for order: {}\", payment.getOrderId());\n        // ...process payment\n        return ResponseEntity.ok(\"Success\");\n    }\n}",
-      "explanation": "Each microservice handles its own logging. Without an API Gateway, there's no single entry point for unified request tracing or correlation."
+      "negative_example": "// AdService.java main method, if it started an HTTP server directly exposed:\npublic static void main(String args) throws IOException, InterruptedException {\n    HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);\n    server.createContext(\"/ads\", new AdHandler());\n    server.setExecutor(null); // creates a default executor\n    server.start();\n    System.out.println(\"AdService HTTP server started directly.\");\n}",
+      "explanation": "A hypothetical scenario where the `adservice` (Java) directly starts an HTTP server and is exposed to the internet. This would mean external clients directly access this service, increasing the attack surface and distributing security concerns across the application."
     },
     {
-      "artifact_type": "source code",
-      "language": "JavaScript",
-      "negative_example": "// Custom metrics per service, with no aggregation point.\nconst express = require('express');\nconst app = express();\nlet requestCount = 0;\n\napp.use((req, res, next) => {\n  requestCount++;\n  console.log(`Requests: ${requestCount}`);\n  next();\n});\n\napp.get('/data', (req, res) => res.send('OK'));\n\napp.listen(3000);",
-      "explanation": "Services track metrics in isolation. Without a centralized API Gateway, aggregating observability data (requests, errors, etc.) is much harder."
+      "artifact_type": "Kubernetes Network Policy (Absence of Restriction)",
+      "language": "YAML",
+      "negative_example": "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-all-ingress\nspec:\n  podSelector: {}\n  ingress:\n  - {}",
+      "explanation": "A Kubernetes NetworkPolicy that allows all ingress traffic to all pods. While not directly 'no API Gateway', this configuration *enables* the 'no API Gateway' smell by failing to restrict external access to only the designated gateway service, allowing direct access to internal services if they are exposed."
+    },
+    {
+      "artifact_type": "Go Code (Product Catalog Service - Hypothetical External Exposure)",
+      "language": "Go",
+      "negative_example": "// productcatalogservice/server.go\n// If this service were configured to listen on a public IP and port:\nfunc main() {\n    lis, err := net.Listen(\"tcp\", \":8080\") // Listen on all interfaces\n    //... no external load balancer or gateway in front\n    grpcServer.Serve(lis)\n}",
+      "explanation": "If the `productcatalogservice` (Go) were configured to listen on all network interfaces and was directly exposed to the internet without an API Gateway or proper network segmentation, it would allow external clients to bypass the intended entry point, increasing security risks."
+    },
+    {
+      "artifact_type": "Client-Side Code (Mobile App - Hypothetical Multi-Service Calls)",
+      "language": "Swift (Illustrative)",
+      "negative_example": "func loadHomePageData() {\n    // Call product service\n    ProductAPI.shared.getProducts { products in\n        // Call currency service\n        CurrencyAPI.shared.getExchangeRates { rates in\n            // Call ad service\n            AdAPI.shared.getAds { ads in\n                // Display data\n            }\n        }\n    }\n}",
+      "explanation": "A hypothetical mobile application making separate, direct API calls to `ProductAPI`, `CurrencyAPI`, and `AdAPI`. This results in multiple client-server round trips, leading to higher latency and a poorer user experience, which an API Gateway could optimize through aggregation."
+    },
+    {
+      "artifact_type": "Configuration File (Nginx - Hypothetical Direct Service Proxy)",
+      "language": "Nginx Conf",
+      "negative_example": "server {\n    listen 80;\n    server_name cart.example.com;\n    location / {\n        proxy_pass http://cartservice-internal-ip:7070;\n    }\n}\n\nserver {\n    listen 80;\n    server_name product.example.com;\n    location / {\n        proxy_pass http://productcatalogservice-internal-ip:3550;\n    }\n}",
+      "explanation": "Using a simple reverse proxy (like Nginx) that directly maps external domains to individual internal microservices. While a reverse proxy, it lacks the advanced features of an API Gateway (aggregation, centralized security, rate limiting) and still exposes multiple distinct endpoints to the client, failing to provide a unified facade."
     }
   ],
   "positive": [
   {
-    "artifact_type": "source code",
-    "language": "JavaScript",
-    "positive_example": "// JavaScript client using a single API Gateway endpoint\nfetch('http://api-gateway/api/products')\n  .then(r => r.json()).then(data => console.log('Products:', data));\n\nfetch('http://api-gateway/api/orders')\n  .then(r => r.json()).then(data => console.log('Orders:', data));",
-    "explanation": "The client interacts only with the API Gateway, which handles routing to the appropriate microservices. The client does not need to know the addresses of individual services."
-  },
-  {
-    "artifact_type": "source code",
-    "language": "Vue",
-    "positive_example": "// Vue component calling a unified API Gateway endpoint\nexport default {\n  data() {\n    return {\n      products: [],\n      orders: []\n    }\n  },\n  mounted() {\n    fetch('http://api-gateway/api/products').then(r => r.json()).then(data => this.products = data);\n    fetch('http://api-gateway/api/orders').then(r => r.json()).then(data => this.orders = data);\n  }\n}",
-    "explanation": "The Vue component communicates only with the API Gateway, which abstracts away the details of the underlying microservices."
-  },
-  {
-    "artifact_type": "HTML",
-    "language": "HTML",
-    "positive_example": "<!-- HTML form submitting to a single API Gateway endpoint -->\n<form action=\"http://api-gateway/createOrder\" method=\"POST\">\n  <input type=\"hidden\" name=\"productId\" value=\"123\">\n  <button type=\"submit\">Create Order</button>\n</form>",
-    "explanation": "The HTML form submits to a single endpoint managed by the API Gateway, which coordinates the necessary backend operations."
-  },
-  {
-    "artifact_type": "Dockerfile",
-    "language": "Dockerfile",
-    "positive_example": "# Dockerfile for a client service using a single API Gateway URL\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nENV API_GATEWAY_URL=http://api-gateway:8080\nCMD [\"npm\", \"start\"]",
-    "explanation": "The client service is configured to communicate only with the API Gateway, not with individual microservices."
-  },
-  {
-    "artifact_type": "source code",
-    "language": "JavaScript",
-    "positive_example": "// Centralized authentication via API Gateway\nasync function fetchUserData(userId) {\n  const response = await fetch(`http://api-gateway/users/${userId}`);\n  return response.json();\n}",
-    "explanation": "Authentication and routing are handled by the API Gateway, so the client does not need to manage tokens or service addresses for each microservice."
-  }
+      "artifact_type": "Go Code (Frontend Service)",
+      "language": "Go",
+      "positive_example": "func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {\n    // Handles incoming HTTP requests from external clients\n    // Calls productcatalogservice and adservice internally via gRPC\n    products, err := fe.productCatalogServiceClient.ListProducts(ctx, &pb.Empty{}) // Internal gRPC call\n    ads, err := fe.adServiceClient.GetAds(ctx, &pb.AdRequest{ContextKeys:string{\"home\"}}) // Internal gRPC call\n    // Aggregates data and renders HTML\n}",
+      "explanation": "The `homeHandler` in the `frontend` service receives a single HTTP request from the client and then internally orchestrates calls to multiple backend services (productcatalogservice, adservice) via gRPC. This demonstrates request aggregation, reducing the number of round trips for the client."
+    },
+    {
+      "artifact_type": "Kubernetes Deployment (Frontend Service)",
+      "language": "YAML",
+      "positive_example": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: frontend\n  labels:\n    app: frontend\nspec:\n  selector:\n    matchLabels:\n      app: frontend\n  template:\n    metadata:\n      labels:\n        app: frontend\n    spec:\n      containers:\n      - name: server\n        image: frontend\n        ports:\n        - containerPort: 8080\n        env:\n        - name: PRODUCT_CATALOG_SERVICE_ADDR\n          value: \"productcatalogservice:3550\"\n        - name: CURRENCY_SERVICE_ADDR\n          value: \"currencyservice:7000\"\n        - name: CART_SERVICE_ADDR\n          value: \"cartservice:7070\"\n        #... other service addresses",
+      "explanation": "The `frontend` Deployment configuration explicitly defines environment variables for the addresses of backend services (e.g., `productcatalogservice:3550`). This allows the `frontend` (acting as gateway) to know and route to internal services without exposing these internal addresses to external clients, maintaining abstraction."
+    },
+    {
+      "artifact_type": "Go Code (Frontend Authentication Mock)",
+      "language": "Go",
+      "positive_example": "func (fe *frontendServer) authMiddleware(next http.Handler) http.Handler {\n    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n        // In a real application, this would handle JWT validation, OAuth, etc.\n        // For demo, it might simulate session management or basic checks.\n        sessionID := getSessionID(r)\n        if!isValidSession(sessionID) {\n            http.Redirect(w, r, \"/login\", http.StatusFound)\n            return\n        }\n        next.ServeHTTP(w, r)\n    })\n}",
+      "explanation": "The `frontend` service, acting as the API Gateway, can implement centralized authentication/authorization middleware. This offloads security concerns from individual backend microservices, allowing them to focus on core business logic."
+    },
+    {
+      "artifact_type": "Kubernetes Ingress (Hypothetical for Frontend)",
+      "language": "YAML",
+      "positive_example": "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: online-boutique-ingress\nspec:\n  rules:\n  - host: boutique.example.com\n    http:\n      paths:\n      - path: /\n        pathType: Prefix\n        backend:\n          service:\n            name: frontend-external\n            port:\n              number: 80",
+      "explanation": "While `microservices-demo` uses `LoadBalancer` directly, a common API Gateway pattern in Kubernetes is an Ingress controller. This snippet shows how an Ingress could route external traffic for a specific domain to the `frontend` service, acting as a sophisticated API gateway for HTTP/S traffic and centralizing access."
+    },
+    {
+      "artifact_type": "Go Code (Frontend Rate Limiting Example)",
+      "language": "Go",
+      "positive_example": "import \"golang.org/x/time/rate\"\n\nvar limiter = rate.NewLimiter(1, 5) // 1 request per second, burst of 5\n\nfunc (fe *frontendServer) rateLimitMiddleware(next http.Handler) http.Handler {\n    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n        if!limiter.Allow() {\n            http.Error(w, \"Too many requests\", http.StatusTooManyRequests)\n            return\n        }\n        next.ServeHTTP(w, r)\n    })\n}",
+      "explanation": "Implementing rate limiting logic within the `frontend` service (acting as API Gateway) ensures that the backend microservices are protected from excessive load. This centralizes a critical cross-cutting concern."
+    },
+    {
+      "artifact_type": "Go Code (Frontend Caching Example)",
+      "language": "Go",
+      "positive_example": "var productCache = make(map[string]*pb.Product)\n\nfunc (fe *frontendServer) getProductFromCache(productID string) (*pb.Product, bool) {\n    // Simplified caching logic\n    product, ok := productCache\n    return product, ok\n}\n\nfunc (fe *frontendServer) updateProductCache(product *pb.Product) {\n    productCache[product.Id] = product\n}",
+      "explanation": "The `frontend` service can implement caching mechanisms for frequently accessed data (e.g., product catalog). This reduces the load on backend services and improves response times for clients by minimizing internal round trips."
+    },
+    {
+      "artifact_type": "Kubernetes Manifest (ServiceAccount for Frontend)",
+      "language": "YAML",
+      "positive_example": "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: frontend\n  labels:\n    app: frontend",
+      "explanation": "Defining a dedicated ServiceAccount for the `frontend` service allows for fine-grained access control and security policies to be applied specifically to the gateway, enhancing overall system security by isolating it from other services."
+    },
+    {
+      "artifact_type": "Go Code (Frontend Protocol Translation Example)",
+      "language": "Go",
+      "positive_example": "func (fe *frontendServer) callBackendService(ctx context.Context, req *http.Request) (interface{}, error) {\n    //... logic to translate HTTP request to gRPC request...\n    grpcReq := &pb.CartRequest{UserId: getUserID(req), ProductId: getProductID(req)}\n    resp, err := fe.cartServiceClient.AddItem(ctx, grpcReq) // gRPC call\n    //... logic to translate gRPC response to HTTP response...\n    return resp, err\n}",
+      "explanation": "The `frontend` service translates incoming HTTP/REST requests from clients into gRPC calls for internal microservices. This allows internal services to use their preferred protocol while presenting a standardized interface to clients."
+    },
+    {
+      "artifact_type": "Kubernetes Manifest (Frontend Liveness/Readiness Probes)",
+      "language": "YAML",
+      "positive_example": "      livenessProbe:\n        httpGet:\n          path: /healthz\n          port: 8080\n        initialDelaySeconds: 15\n        periodSeconds: 10\n      readinessProbe:\n        httpGet:\n          path: /readyz\n          port: 8080\n        initialDelaySeconds: 15",
+      "explanation": "Implementing liveness and readiness probes for the `frontend` service allows Kubernetes to manage its lifecycle effectively. This ensures the API Gateway is healthy and ready to serve traffic, contributing to the overall availability and resilience of the system"
+    }
 ],
   "meta_data": {
     "tags": ["api-gateway", "routing", "security", "client-coupling", "cross-cutting-concerns"],
+    "remediation_difficulty": "High",
     "impact": "high"
   }
 }

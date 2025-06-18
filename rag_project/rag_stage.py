@@ -54,7 +54,11 @@ LOADER_MAPPING = {
     ".js": (TextLoader, {"encoding": "utf-8"}),
     ".vue": (TextLoader, {"encoding": "utf-8"}),
     ".html": (TextLoader, {"encoding": "utf-8"}),
-    "dockerfile": (TextLoader, {"encoding": "utf-8"})
+    "dockerfile": (TextLoader, {"encoding": "utf-8"}),
+    ".py": (TextLoader, {"encoding": "utf-8"}),
+    ".go": (TextLoader, {"encoding": "utf-8"}),
+    ".cs": (TextLoader, {"encoding": "utf-8"}),
+    ".sh": (TextLoader, {"encoding": "utf-8"})
 }
 
 # Carica i dati della KB dal formato json

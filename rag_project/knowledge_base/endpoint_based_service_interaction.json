@@ -7,184 +7,119 @@
   ],
   "manifestations": [
     {
-      "artifact_type": "source code",
+      "artifact_type": "Node.js Code (Payments Service - Direct Pod Name Resolution)",
+      "language": "Node.js",
+      "negative_example": "// paymentservice/server.js\n//... attempting to resolve a specific pod name directly\nconst emailServiceUrl = 'http://emailservice-pod-abcde.default.svc.cluster.local:8080';\naxios.post(emailServiceUrl, emailData);",
+      "explanation": "A hypothetical Node.js `paymentservice` directly constructing a URL using an ephemeral pod name (`emailservice-pod-abcde`). While technically resolvable within Kubernetes, relying on specific pod names bypasses load balancing and is fragile if the pod is recreated or scaled."
+    },
+    {
+      "artifact_type": "Python Code (Recommendation Service - DNS Lookup in Code)",
       "language": "Python",
-      "negative_example": "import requests\n\n# Hardcoded endpoint.\nurl = \"http://192.168.1.100:8080/api/v1/resource\"\nresponse = requests.get(url)\n\nif response.status_code == 200:\n    print(\"Success:\", response.json())\nelse:\n    print(\"Error:\", response.status_code)",
-      "explanation": "Embedding the URL directly means every change to the target requires a code update and redeploy—no flexibility."
+      "negative_example": "import socket\n\ndef get_product_catalog_ip():\n    # Manual DNS lookup instead of relying on Kubernetes DNS resolution\n    ip_addr = socket.gethostbyname('productcatalogservice') # Still resolves, but less robust if not managed by platform\n    return f'http://{ip_addr}:3550'",
+      "explanation": "A hypothetical Python `recommendationservice` explicitly performing a DNS lookup for `productcatalogservice` within its code to get an IP. While `socket.gethostbyname` would resolve the Kubernetes service DNS, this pattern is less robust than relying on the platform's native service discovery mechanisms (e.g., environment variables for service addresses) as it adds unnecessary complexity and potential for misconfiguration."
     },
     {
-      "artifact_type": "source code",
-      "language": "Java",
-      "negative_example": "import java.net.HttpURLConnection;\nimport java.net.URL;\n\npublic class Example {\n    public static void main(String[] args) throws Exception {\n        // Fixed endpoint string.\n        String endpoint = \"http://192.168.1.100:8080/api/v1/resource\";\n        URL url = new URL(endpoint);\n        HttpURLConnection connection = (HttpURLConnection) url.openConnection();\n        connection.setRequestMethod(\"GET\");\n\n        int responseCode = connection.getResponseCode();\n        if (responseCode == 200) {\n            System.out.println(\"Success\");\n        } else {\n            System.out.println(\"Error: \" + responseCode);\n        }\n    }\n}",
-      "explanation": "Having a hardcoded address makes the app inflexible—any change to that service’s location demands code changes."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Python",
-      "negative_example": "import pika\n\n# Hardcoded broker IP.\nconnection = pika.BlockingConnection(\n    pika.ConnectionParameters('192.168.1.100')\n)\nchannel = connection.channel()\nchannel.queue_declare(queue='example_queue')\nchannel.basic_publish(exchange='', routing_key='example_queue', body='hello world')\nprint(\"Message sent\")\nconnection.close()",
-      "explanation": "If your message broker moves or you scale it out, this code will still point at the old location, causing failures."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Python",
-      "negative_example": "import redis\n\n# Hardcoded cache server.\ncache = redis.StrictRedis(host='192.168.1.100', port=6379, db=0)\ncache.set('key', 'value')\nprint(cache.get('key'))",
-      "explanation": "Tying your cache client to a specific host makes any reconfiguration or scaling painful."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "C#",
-      "negative_example": "using System;\nusing System.Net.Http;\nusing System.Threading.Tasks;\n\nclass Program {\n    static async Task Main(string[] args) {\n        // Fixed service URL in code.\n        string url = \"http://192.168.1.100:8080/api/v1/resource\";\n        using HttpClient client = new HttpClient();\n        HttpResponseMessage response = await client.GetAsync(url);\n\n        if (response.IsSuccessStatusCode) {\n            Console.WriteLine(\"Success: \" + await response.Content.ReadAsStringAsync());\n        } else {\n            Console.WriteLine(\"Error: \" + response.StatusCode);\n        }\n    }\n}",
-      "explanation": "A C# client that always points at one URL is fragile if that endpoint ever moves or needs to change."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Python",
-      "negative_example": "from elasticsearch import Elasticsearch\n\n# Hardcoded cluster address.\nes = Elasticsearch(['http://192.168.1.100:9200'])\nes.index(index='example_index', id=1, document={'key': 'value'})\nprint(es.get(index='example_index', id=1))",
-      "explanation": "Locking your Elasticsearch client to one address makes any cluster reconfiguration a code-release event."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "PHP",
-      "negative_example": "<?php\n// Fixed payment gateway URL.\n$endpoint = \"http://192.168.1.100:8080/payment\";\n$data = ['amount' => 100, 'currency' => 'usd'];\n$options = [\n    'http' => [\n        'header'  => \"Content-type: application/json\\r\\n\",\n        'method'  => 'POST',\n        'content' => json_encode($data),\n    ],\n];\n$context  = stream_context_create($options);\n$result = file_get_contents($endpoint, false, $context);\n\necho $result === false ? \"Error\" : \"Success: $result\";\n?>",
-      "explanation": "When the provider changes their endpoint, your code breaks until you push an update."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Java",
-      "negative_example": "// Hardcoded URL for external service.\npublic class OrderService {\n\n    private static final String PRODUCT_SERVICE_URL = \"http://product-service:8080/products\";\n\n    public String getProductDetails(String productId) {\n        RestTemplate restTemplate = new RestTemplate();\n        return restTemplate.getForObject(PRODUCT_SERVICE_URL + \"/\" + productId, String.class);\n    }\n}",
-      "explanation": "Hardcoding the `PRODUCT_SERVICE_URL` directly within the `OrderService` makes the application brittle to changes in the location or port of the product service."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "JavaScript",
-      "negative_example": "// JavaScript code with a hardcoded API endpoint.\nasync function fetchProductData() {\n  const apiUrl = 'http://localhost:3001/products';\n  try {\n    const response = await fetch(apiUrl);\n    const data = await response.json();\n    console.log('Product Data:', data);\n  } catch (error) {\n    console.error('Error fetching product data:', error);\n  }\n}",
-      "explanation": "This JavaScript code uses a hardcoded URL (`http://localhost:3001/products`) to fetch product data. If the API endpoint changes, the code must be updated and redeployed."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Vue",
-      "negative_example": "// Vue component with a hardcoded service URL.\nexport default {\n  data() {\n    return {\n      product: null,\n      apiUrl: 'http://localhost:3001/products/1',\n    };\n  },\n  mounted() {\n    this.fetchProduct();\n  },\n  methods: {\n    async fetchProduct() {\n      try {\n        const response = await fetch(this.apiUrl);\n        this.product = await response.json();\n      } catch (error) {\n        console.error('Error fetching product:', error);\n      }\n    },\n  },\n};",
-      "explanation": "This Vue component has a hardcoded `apiUrl` that points to a specific product. This URL is inflexible and can't easily adapt to changes in the service's location."
-    },
-    {
-      "artifact_type": "HTML",
-      "language": "HTML",
-      "negative_example": "<!-- HTML form submitting data to a hardcoded endpoint -->\n<form action=\"http://localhost:3002/submit\" method=\"POST\">\n  <label for=\"name\">Name:</label>\n  <input type=\"text\" id=\"name\" name=\"name\"><br><br>\n  <input type=\"submit\" value=\"Submit\">\n</form>",
-      "explanation": "This HTML form submits data to a hardcoded URL. If the service location changes, the HTML needs to be updated."
-    },
-    {
-      "artifact_type": "Dockerfile",
-      "language": "Dockerfile",
-      "negative_example": "# Dockerfile with hardcoded environment variables.\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nENV API_URL=http://localhost:3001/api\nCMD [\"npm\", \"start\"]",
-      "explanation": "The Dockerfile defines the `API_URL` environment variable with a hardcoded URL, making the application dependent on this specific endpoint."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Java",
-      "negative_example": "// Using hardcoded database connection details.\npublic class DatabaseConnector {\n\n    private static final String JDBC_URL = \"jdbc:postgresql://localhost:5432/mydb\";\n    private static final String USERNAME = \"dbuser\";\n    private static final String PASSWORD = \"password\";\n\n    public Connection getConnection() throws SQLException {\n        return DriverManager.getConnection(JDBC_URL, USERNAME, PASSWORD);\n    }\n}",
-      "explanation": "This Java code uses hardcoded JDBC URL, username, and password, making it difficult to change database locations or credentials without modifying the code."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "JavaScript",
-      "negative_example": "// JavaScript: Hardcoded WebSocket URL.\nconst socket = new WebSocket('ws://localhost:8080');\n\nsocket.addEventListener('open', (event) => {\n  console.log('Connected to WebSocket server');\n});",
-      "explanation": "This JavaScript code creates a WebSocket connection using a hardcoded URL. If the WebSocket server moves, the code needs to be updated."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Vue",
-      "negative_example": "// Vue: Hardcoded image path from another service.\n<template>\n  <img src=\"http://localhost:3003/images/logo.png\" alt=\"Logo\">\n</template>",
-      "explanation": "This Vue component uses a hardcoded image path. If the image location changes, the component needs to be updated."
-    },
-    {
-      "artifact_type": "HTML",
-      "language": "HTML",
-      "negative_example": "<!-- HTML: Hardcoded CDN URL for CSS. -->\n<link rel=\"stylesheet\" href=\"https://cdn.example.com/styles.css\">",
-      "explanation": "This HTML code uses a hardcoded CDN URL for CSS. If the CDN is unavailable or the URL changes, the stylesheet won't load."
-    },
-    {
-      "artifact_type": "Dockerfile",
-      "language": "Dockerfile",
-      "negative_example": "# Dockerfile with hardcoded service dependency.\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nENV DEPENDENCY_URL=http://localhost:3004\nCMD [\"node\", \"app.js\"]",
-      "explanation": "This Dockerfile sets the `DEPENDENCY_URL` environment variable with a hardcoded URL. If the dependency service moves, the application needs to be rebuilt."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Java",
-      "negative_example": "// Java: Hardcoded JMS broker URL.\npublic class JMSProducer {\n\n    private static final String BROKER_URL = \"tcp://localhost:61616\";\n\n    public void sendMessage(String message) throws JMSException {\n        ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory(BROKER_URL);\n        // ... rest of the code\n    }\n}",
-      "explanation": "This Java code uses a hardcoded URL for the JMS broker. If the broker moves or the URL changes, the application needs to be updated."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "JavaScript",
-      "negative_example": "// JavaScript: GraphQL endpoint with a hardcoded URL.\nconst graphqlEndpoint = 'http://localhost:4000/graphql';\n\nasync function fetchData() {\n  const response = await fetch(graphqlEndpoint, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ query: '{ hello }' }),\n  });\n  const data = await response.json();\n  console.log(data);\n}",
-      "explanation": "This JavaScript code uses a hardcoded URL for the GraphQL endpoint. If the endpoint changes, the application needs to be updated."
-    },
-    {
-      "artifact_type": "configuration",
+      "artifact_type": "Kubernetes ConfigMap (Hardcoded External Dependency)",
       "language": "YAML",
-      "negative_example": "payment_service:\n  endpoint: http://192.168.1.50:8080/api/v1/payments",
-      "explanation": "This YAML config ties the `payment_service` to a static address. In distributed systems, it's better to resolve endpoints dynamically through service discovery or environment variables."
+      "negative_example": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: external-db-config\ndata:\n  DATABASE_URL: \"jdbc:mysql://192.168.1.100:3306/mydb\"",
+      "explanation": "A ConfigMap containing a hardcoded IP address for an external database. While not an internal microservice, this illustrates the smell of relying on a fixed, potentially unstable network endpoint, making the application brittle to infrastructure changes."
     },
     {
-      "artifact_type": "source code",
+      "artifact_type": "C# Code (Cart Service - Configuration File with IP)",
+      "language": "C#",
+      "negative_example": "// appsettings.json or similar config file\n{\n  \"RedisSettings\": {\n    \"Address\": \"172.17.0.2:6379\" // Hardcoded Redis IP\n  }\n}",
+      "explanation": "If the `cartservice` (C#) configured its Redis dependency  with a hardcoded IP address in a configuration file. This would make the `cartservice` fragile, as the Redis instance's IP could change, leading to connectivity issues and requiring manual updates and redeployments."
+    },
+    {
+      "artifact_type": "Java Code (Ad Service - Direct Connection String)",
+      "language": "Java",
+      "negative_example": "// AdService.java\n//... in a method making a call to productcatalogservice\n// Channel channel = ManagedChannelBuilder.forAddress(\"10.0.0.6\", 3550)\n//   .usePlaintext()\n//   .build();",
+      "explanation": "A hypothetical `adservice` directly connecting to `productcatalogservice` using a hardcoded internal IP address (`10.0.0.6`). This creates a direct dependency on an unstable network location, which is prone to breaking when the `productcatalogservice` pod restarts or moves."
+    },
+    {
+      "artifact_type": "Docker Compose File (Legacy Direct Linking)",
+      "language": "YAML",
+      "negative_example": "services:\n  frontend:\n    build:./frontend\n    links:\n      - productcatalogservice:productcatalogservice_legacy_ip\n  productcatalogservice:\n    build:./productcatalogservice",
+      "explanation": "Using Docker Compose `links` (a legacy feature) to connect services, which relies on hostname resolution that might not translate well to dynamic Kubernetes environments or could lead to hardcoded aliases. While Docker Compose provides DNS, `links` can encourage a mindset of direct, static connections rather than dynamic service discovery."
+    },
+    {
+      "artifact_type": "Go Code (Checkout Service - Manual Endpoint List)",
       "language": "Go",
-      "negative_example": "package main\n\nimport (\n  \"net/http\"\n  \"os\"\n)\n\nfunc main() {\n  // If no service discovery value is set, fallback to static\n  endpoint := os.Getenv(\"USER_SERVICE\")\n  if endpoint == \"\" {\n    endpoint = \"http://10.0.0.5:8080/users\" // fallback\n  }\n  http.Get(endpoint)\n}",
-      "explanation": "This fallback logic undermines the use of service discovery. The static fallback makes the system fragile to change."
+      "negative_example": "var cartServiceEndpoints =string{\n    \"cartservice-pod-a:7070\",\n    \"cartservice-pod-b:7070\",\n} // Manual list of specific pod endpoints",
+      "explanation": "A hypothetical `checkoutservice` maintaining a manual list of `cartservice` pod endpoints. This approach is highly brittle, as it requires manual updates whenever pods are added, removed, or change, and it bypasses Kubernetes' native load balancing and service discovery."
     },
     {
-      "artifact_type": "infrastructure",
-      "language": "HCL",
-      "negative_example": "resource \"aws_instance\" \"web\" {\n  ami           = \"ami-123456\"\n  instance_type = \"t2.micro\"\n  user_data     = <<-EOF\n    curl http://10.0.1.12:8080/health\n  EOF\n}",
-      "explanation": "The instance hardcodes the internal service endpoint instead of resolving it dynamically, which prevents scalability or replacement of services."
+      "artifact_type": "Kubernetes Deployment (Missing Service Account)",
+      "language": "YAML",
+      "negative_example": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: cartservice\n  labels:\n    app: cartservice\nspec:\n  selector:\n    matchLabels:\n      app: cartservice\n  template:\n    metadata:\n      labels:\n        app: cartservice\n    spec:\n      # serviceAccountName: cartservice # Missing service account",
+      "explanation": "While not directly about IP addressing, omitting the `serviceAccountName`  for a deployment can indicate a lack of proper integration with Kubernetes' identity and discovery mechanisms. This can implicitly lead to services relying on less robust methods for finding dependencies if the platform's native features aren't fully leveraged."
     },
     {
-      "artifact_type": "source code",
-      "language": "TypeScript",
-      "negative_example": "export class ApiClient {\n  private baseUrl = 'http://localhost:3000/api';\n\n  async getData() {\n    return fetch(`${this.baseUrl}/data`).then(res => res.json());\n  }\n}",
-      "explanation": "Even though wrapped in a client, this hardcoded base URL ties the SDK to a specific environment, which is a form of endpoint-based coupling."
+      "artifact_type": "Configuration File (Environment Variable with IP)",
+      "language": "Text/Env",
+      "negative_example": "SHIPPING_SERVICE_ADDR=10.0.0.7:5000",
+      "explanation": "Setting an environment variable with a hardcoded IP address for the `shippingservice`. While environment variables are good for externalizing configuration, using a fixed IP makes the configuration fragile and prone to breakage if the `shippingservice` pod's IP changes."
     }
   ],
-  "positive_examples": [
+  "positive": [
     {
-      "artifact_type": "source code",
-      "language": "Python",
-      "positive_example": "import os\nimport requests\n\ndef call_service():\n    # L'endpoint viene letto da variabile d'ambiente\n    base_url = os.getenv('SERVICE_B_URL', 'http://service-b.default.svc.cluster.local')\n    response = requests.get(f\"{base_url}/api/v1/resource\", timeout=5)\n    if response.ok:\n        print(\"Success:\", response.json())\n    else:\n        print(\"Error:\", response.status_code)\n\ncall_service()",
-      "explanation": "Usa variabile d'ambiente (o DNS di Kubernetes) per risolvere il servizio dinamicamente, senza URL fissi in codice."
+      "artifact_type": "Shell Command (Client for Cart Service REST)",
+      "language": "Bash",
+      "positive_example": "curl -X 'POST' 'http://cartservice:60000/cart/user_id/abcde' \\ -H 'accept: application/json' \\ -H 'content-type: application/json' \\ -d '{ \"product_id\": \"OLJCESPC7Z\", \"quantity\": 1 }'",
+      "explanation": "Similar to the gRPC example, this `curl` command uses `cartservice:60000` for REST communication. The use of the service name `cartservice` instead of an IP address ensures that the client can reliably connect to the `cartservice` regardless of which pod is serving the request or its underlying IP."
     },
     {
-      "artifact_type": "source code",
-      "language": "Java",
-      "positive_example": "import org.springframework.cloud.client.discovery.DiscoveryClient;\nimport org.springframework.web.client.RestTemplate;\nimport org.springframework.beans.factory.annotation.Autowired;\n\npublic class OrderService {\n    @Autowired\n    private DiscoveryClient discoveryClient;\n\n    public String getProduct(String productId) {\n        // Recupera istanze disponibili via service registry\n        String serviceUrl = discoveryClient.getInstances(\"product-service\").get(0).getUri().toString();\n        RestTemplate tpl = new RestTemplate();\n        return tpl.getForObject(serviceUrl + \"/products/\" + productId, String.class);\n    }\n}",
-      "explanation": "Spring Cloud usa DiscoveryClient per risolvere l’URL del servizio al volo, consentendo scalabilità e fail‑over."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Node.js",
-      "positive_example": "const axios = require('axios');\n\nasync function fetchData() {\n  // Endpoint viene letto da config o env var\n  const baseUrl = process.env.SERVICE_B_URL || 'http://service-b.namespace.svc.cluster.local';\n  const res = await axios.get(`${baseUrl}/api/data`, { timeout: 3000 });\n  return res.data;\n}\n\nfetchData().then(console.log).catch(console.error);",
-      "explanation": "La variabile d’ambiente o il DNS di servizio Kubernetes evita di hardcodare l’indirizzo nel codice."
-    },
-    {
-      "artifact_type": "source code",
-      "language": "Go",
-      "positive_example": "package main\n\nimport (\n    \"context\"\n    \"fmt\"\n    \"time\"\n\n    \"google.golang.org/grpc\"\n    pb \"example.com/proto\"\n)\n\nfunc main() {\n    // Risolvi tramite DNS di Kubernetes\n    addr := \"service-b.default.svc.cluster.local:50051\"\n    conn, err := grpc.Dial(addr, grpc.WithInsecure(), grpc.WithBlock(), grpc.WithTimeout(3*time.Second))\n    if err != nil {\n        fmt.Println(\"Connessione fallita:\", err)\n        return\n    }\n    defer conn.Close()\n    client := pb.NewExampleServiceClient(conn)\n    ctx, cancel := context.WithTimeout(context.Background(), time.Second)\n    defer cancel()\n\n    resp, err := client.ExampleMethod(ctx, &pb.ExampleRequest{})\n    if err != nil {\n        fmt.Println(\"Errore chiamata:\", err)\n    } else {\n        fmt.Println(\"Risposta:\", resp.Message)\n    }\n}",
-      "explanation": "Usa il DNS interno di Kubernetes per risolvere automaticamente l’indirizzo del servizio, senza IP fissi."
-    },
-    {
-      "artifact_type": "Dockerfile",
-      "language": "Dockerfile",
-      "positive_example": "# Dockerfile: passa l’endpoint via variabile d’ambiente\nFROM node:16\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nENV SERVICE_B_URL=http://service-b.default.svc.cluster.local:8080\nCMD [\"npm\", \"start\"]",
-      "explanation": "L’endpoint non è hard‑codato in codice, ma configurato esternamente come variabile d’ambiente."
-    },
-    {
-      "artifact_type": "configuration",
+      "artifact_type": "Kubernetes Deployment (Cart Service Environment Variable)",
       "language": "YAML",
-      "positive_example": "service:\n  name: service-a\n  dependencies:\n    serviceB:\n      # Usa service discovery tramite DNS di Kubernetes\n      url: http://service-b.default.svc.cluster.local:8080",
-      "explanation": "La configurazione YAML sfrutta il DNS di servizio Kubernetes anziché un indirizzo IP statico."
+      "positive_example": "      env:\n      - name: REDIS_ADDR\n        value: \"redis-cart:6379\"",
+      "explanation": "From the `cartservice` Kubernetes manifest, the `REDIS_ADDR` environment variable is set to `redis-cart:6379`. `redis-cart` is the Kubernetes Service name for the Redis instance. This is a strong positive example of using logical service names for internal dependencies, ensuring the `cartservice` can always find its Redis backend."
+    },
+    {
+      "artifact_type": "Go Code (Checkout Service - Service Address Configuration)",
+      "language": "Go",
+      "positive_example": "var (\n\tcartServiceAddr         = os.Getenv(\"CART_SERVICE_ADDR\")\n\tproductCatalogServiceAddr = os.Getenv(\"PRODUCT_CATALOG_SERVICE_ADDR\")\n\tshippingServiceAddr     = os.Getenv(\"SHIPPING_SERVICE_ADDR\")\n\tcurrencyServiceAddr     = os.Getenv(\"CURRENCY_SERVICE_ADDR\")\n\tpaymentServiceAddr      = os.Getenv(\"PAYMENT_SERVICE_ADDR\")\n\temailServiceAddr        = os.Getenv(\"EMAIL_SERVICE_ADDR\")\n\trecommendationServiceAddr = os.Getenv(\"RECOMMENDATION_SERVICE_ADDR\")\n)",
+      "explanation": "The `checkoutservice` retrieves its dependent service addresses from environment variables. These environment variables are populated by Kubernetes with service DNS names (e.g., `cartservice:7070`), ensuring that the service does not hardcode endpoints and can adapt to changes in the environment."
+    },
+    {
+      "artifact_type": "Kubernetes Service Definition (Product Catalog Service)",
+      "language": "YAML",
+      "positive_example": "apiVersion: v1\nkind: Service\nmetadata:\n  name: productcatalogservice\n  labels:\n    app: productcatalogservice\nspec:\n  type: ClusterIP\n  selector:\n    app: productcatalogservice\n  ports:\n  - name: grpc\n    port: 3550\n    targetPort: 3550",
+      "explanation": "This Kubernetes `Service` definition for `productcatalogservice` creates a stable internal DNS name (`productcatalogservice`) for the service. Other services can reliably call `productcatalogservice:3550` without needing to know the ephemeral IP addresses of its pods."
+    },
+    {
+      "artifact_type": "Node.js Code (Currency Service - Environment Variable Usage)",
+      "language": "Node.js",
+      "positive_example": "// currencyservice/server.js\nconst PORT = process.env.PORT || 7000;\n//... gRPC server listens on PORT\n// The service itself doesn't hardcode its own port for internal discovery, \n// relying on Kubernetes service definition.",
+      "explanation": "The `currencyservice` uses an environment variable `PORT` to define its listening port. While basic, this indicates that the service's own network configuration is externalized, allowing Kubernetes to define the stable service endpoint (e.g., `currencyservice:7000`) that other services can discover and use."
+    },
+    {
+      "artifact_type": "Python Code (Email Service - Service Discovery via DNS)",
+      "language": "Python",
+      "positive_example": "# emailservice/email_server.py\n#... assuming similar pattern for service address resolution as Go services\n# For example, if it calls checkoutservice:\n# checkout_service_address = os.getenv('CHECKOUT_SERVICE_ADDR', 'checkoutservice:5050')\n# channel = grpc.insecure_channel(checkout_service_address)",
+      "explanation": "If the `emailservice` needs to communicate with other services (e.g., `checkoutservice`), it would typically resolve their addresses via environment variables set by Kubernetes, which contain the stable DNS names. This prevents hardcoding and ensures adaptability within the cluster."
+    },
+    {
+      "artifact_type": "Java Code (Ad Service - gRPC Channel Setup)",
+      "language": "Java",
+      "positive_example": "// adservice/src/main/java/hipstershop/AdService.java\n// In a client calling adservice (e.g., frontend or recommendationservice):\n// ManagedChannel channel = ManagedChannelBuilder.forAddress(\"adservice\", 9550)\n//   .usePlaintext()\n//   .build();",
+      "explanation": "When another service (e.g., `frontend` or `recommendationservice`) makes a gRPC call to `adservice`, it would use `ManagedChannelBuilder.forAddress(\"adservice\", 9550)`. This explicitly uses the Kubernetes service DNS name `adservice` and its gRPC port, reinforcing the pattern of logical service addressing."
+    },
+    {
+      "artifact_type": "Kubernetes Manifest (Service Account for Cart Service)",
+      "language": "YAML",
+      "positive_example": "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: cartservice\n  labels:\n    app: cartservice",
+      "explanation": "The existence of a dedicated `ServiceAccount` for `cartservice` is part of Kubernetes' internal identity and access management. While not directly about endpoint resolution, it supports the overall framework where services are managed and discovered by the platform using stable identities, rather than relying on ephemeral network details."
+    },
+    {
+      "artifact_type": "Go Code (Shipping Service - Internal Communication)",
+      "language": "Go",
+      "positive_example": "// shippingservice/server.go\n//... when calling a dependent service, e.g., location service:\n// locationServiceAddress := os.Getenv(\"LOCATION_SERVICE_ADDR\", \"locationservice:8080\")\n// conn, err := grpc.Dial(locationServiceAddress, grpc.WithInsecure())",
+      "explanation": "The `shippingservice` would follow the pattern of retrieving dependent service addresses from environment variables, which are populated by Kubernetes. This ensures that its internal communications are based on stable, logical service names, adapting to the dynamic nature of a containerized environment."
     }
   ],
   "meta_data": {
     "tags": ["hardcoded-endpoint", "service-discovery", "coupling", "scalability", "resilience"],
-    "impact": "high"
+    "remediation_difficulty": "Medium",
+    "impact": "Medium"
   }
 }
