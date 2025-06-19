@@ -53,8 +53,8 @@ LOADER_MAPPING = {
     ".html": (TextLoader, {"encoding": "utf-8"}),
     "dockerfile": (TextLoader, {"encoding": "utf-8"}),
     ".sh": (TextLoader, {"encoding": "utf-8"}),
-    ".json": (TextLoader, {"encoding": "utf-8"}),
-    ".groovy": (TextLoader, {"encoding": "utf-8"})
+    ".groovy": (TextLoader, {"encoding": "utf-8"}),
+    ".json": (TextLoader, {"encoding": "utf-8"})
 }
 
 # Carica i dati della KB dal formato json
@@ -136,7 +136,7 @@ def extract_services_from_llm_output(answer: str) -> list[str]:
     in_service_section = False
 
     for line in lines:
-        if "Analyzed services:" in line:
+        if "Analyzed services with security smell:" in line:
             in_service_section = True
             continue
         if in_service_section:
@@ -166,7 +166,7 @@ prompt_template_str = """Instructions:
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
 6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - Make a list of services that contains security smell in that way: "Analyzed services: \n - name of service".
+   - Create a list that contains only services that contain security smell, like this: "Analyzed services with security smell: \n - name of service".
    - For each analyzed file path, create a section, divided by a line of #.
    - Under each file path, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
@@ -200,123 +200,89 @@ def count_tokens_for_llm_input(text_input: str, llm_instance: ChatGoogleGenerati
         print(f"Errore durante il conteggio dei token: {e}")
         return -1
 
-print(f"\n-----------------RAG with Gemini for {TYPE_SMELL} Smell detection----------------")
-print("Type the name of the smell you want to do the analysis on (or 'exit' to exit).")
+def analyze_services_individually(smell_data, base_folder_path, user_query):
+    """
+    Esegue l'analisi RAG iterando su ogni microservizio trovato nel percorso base.
+    """
+    # 1. Identifica le cartelle dei servizi
+    try:
+        service_folders = [f for f in os.listdir(base_folder_path) if os.path.isdir(os.path.join(base_folder_path, f))]
+        # Filtra cartelle non pertinenti come .git, etc.
+        service_folders = [f for f in service_folders if not f.startswith('.') and f not in ['kubernetes', 'knowledge_base']]
+        if not service_folders:
+            print(f"Nessuna cartella di servizio trovata in '{base_folder_path}'. Assicurati che il path contenga le cartelle dei microservizi.")
+            return
+        print(f"Found {len(service_folders)} services to analyze: {service_folders}")
+    except Exception as e:
+        print(f"Errore nella lettura delle cartelle dei servizi da '{base_folder_path}': {e}")
+        return
 
-while True:
-    user_query = input(f"Name of {TYPE_SMELL} Smell: ")
-    if user_query.lower() in ["exit", "quit", "esci", "stop", "x", "q"]:
-        print("Exit from the program.")
-        break
-
-    # Caricamento dello smell
-    smell_data = load_smell_data(user_query, knowledge_base_dir)
-    if not smell_data:
-        continue # Chiedi un nuovo input se lo smell non esiste
-
-    # Caricamento e chunking del codice passato nel path
-    folder_path_input = input("Specify a folder path for the code to be analyzed: ").strip()
-    if not (folder_path_input and os.path.isdir(folder_path_input)):
-        print("Invalid or empty folder path. Please try again.")
-        continue
-
-    source_code_docs = load_folder_path_documents(folder_path_input)
-    if not source_code_docs:
-        print("No source code documents were found in the specified path.")
-        continue
-        
-    code_chunks = get_code_chunks(source_code_docs)
-    if not code_chunks:
-        print("Could not split source code into chunks.")
-        continue
-
-    # Creazione del vector store temporaneo del codice passato nel path
-    print("Creating temporary vector store for the user's code...")
-
-    # Si può aumentare la batch_size se hai molta RAM, per andare più veloce.
-    batch_size = 64
-    all_embeddings = []
-    all_texts = []
-    all_metadatas = []
-
-    # Usiamo TQDM (barra di progressione) per iterare sui batch di documenti
-    for i in tqdm(range(0, len(code_chunks), batch_size), desc="Generating Embeddings"):
-        # Seleziona il batch di documenti corrente
-        batch_docs = code_chunks[i:i + batch_size]
-        # Estrai il testo da ogni documento nel batch
-        batch_texts = [doc.page_content for doc in batch_docs]
-        
-        # Crea gli embeddings per l'intero batch in una sola chiamata (efficiente)
-        batch_embeddings = embeddings_model.embed_documents(batch_texts)
-        
-        # Aggiungi i risultati alle liste principali
-        all_embeddings.extend(batch_embeddings)
-        all_texts.extend(batch_texts)
-        all_metadatas.extend([doc.metadata for doc in batch_docs])
-
-    # Creiamo l'indice FAISS
-    print("Building FAISS index...")
-    text_embedding_pairs = list(zip(all_texts, all_embeddings))
-
-    # Usiamo from_embeddings per costruire il vector store da dati pre-calcolati
-    code_vectorstore = FAISS.from_embeddings(
-        text_embeddings=text_embedding_pairs,
-        embedding=embeddings_model, 
-        metadatas=all_metadatas    
-    )
-    print("Vector store created successfully.")
-
-    print("Searching for suspicious code snippets based on examples from the KB...")
-    search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
-    if not search_queries:
-        print("Warning: No 'negative examples' found in the KB for this smell. Analysis might be inaccurate.")
-        continue
+    all_retrieved_snippets_from_all_services = []
+    processed_content = set()
     
-    search_query_str = "\n".join(search_queries)
+    # K snippet da recuperare per OGNI servizio.
+    k_per_service = 5
 
-    lista_file_unici = sorted(list(set(chunk.metadata['source'] for chunk in code_chunks)))
-    print(f"Found {len(lista_file_unici)} unique source files to analyze.")
+    # 2. Itera su ogni servizio
+    for service_name in tqdm(service_folders, desc="Analyzing services"):
+        service_path = os.path.join(base_folder_path, service_name)
+        print(f"\n--- Analyzing service: {service_name} ---")
 
-    all_retrieved_snippets = []
-    processed_content = set() 
-    
-    # snippet rilevanti vuoi recuperare da OGNI file.
-    k_per_file = 5 
+        # 3. Carica e splitta i documenti SOLO per il servizio corrente
+        source_code_docs = load_folder_path_documents(service_path)
+        if not source_code_docs:
+            print(f"Nessun documento di codice sorgente trovato per il servizio '{service_name}'.")
+            continue
+            
+        code_chunks = get_code_chunks(source_code_docs)
+        if not code_chunks:
+            print(f"Impossibile dividere il codice sorgente in chunk per il servizio '{service_name}'.")
+            continue
 
-    print(f"Executing filtered search to get up to {k_per_file} snippets per file...")
-    for file_path in tqdm(lista_file_unici, desc="Analyzing files"):
-        retrieved_for_file = code_vectorstore.similarity_search(
+        # 4. Crea un vector store TEMPORANEO e ISOLATO per il servizio corrente
+        print(f"Creazione del vector store temporaneo per '{service_name}'...")
+        # NOTA: from_documents è più diretto se non si ha bisogno di gestire i batch manualmente
+        service_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
+        print(f"Vector store per '{service_name}' creato con successo.")
+
+
+        # 5. Esegui la similarity search su questo vector store isolato
+        search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
+        if not search_queries:
+            print("Attenzione: Nessun 'negative_example' trovato nella KB per questo smell. L'analisi potrebbe essere imprecisa.")
+            continue
+        search_query_str = "\n".join(search_queries)
+
+        print(f"Ricerca di {k_per_service} snippet sospetti per il servizio '{service_name}'...")
+        retrieved_for_service = service_vectorstore.similarity_search(
             query=search_query_str,
-            k=k_per_file,
-            filter={"source": file_path}
+            k=k_per_service
         )
         
-        for snippet in retrieved_for_file:
+        print(f"Recuperati {len(retrieved_for_service)} snippet per il servizio '{service_name}'.")
+
+        # Aggiungi gli snippet alla lista globale, evitando duplicati di contenuto
+        for snippet in retrieved_for_service:
             if snippet.page_content not in processed_content:
-                all_retrieved_snippets.append(snippet)
+                all_retrieved_snippets_from_all_services.append(snippet)
                 processed_content.add(snippet.page_content)
-    
-    if all_retrieved_snippets:
-        scored_snippets = code_vectorstore.similarity_search_with_score(search_query_str, k=len(all_retrieved_snippets))
-        retrieved_code_snippets = [doc for doc, score in scored_snippets]
-    else:
-        retrieved_code_snippets = []
 
-    if not retrieved_code_snippets:
-        print("No code snippets were found to be similar to the examples. The code is likely clean for this smell.")
-        continue
-    
-    print(f"Found {len(retrieved_code_snippets)} potentially suspicious code snippets to analyze.")
+    # --- Fine del nuovo ciclo ---
 
-    # Prepara i campi per il prompt
+    if not all_retrieved_snippets_from_all_services:
+        print("\nNessuno snippet di codice simile agli esempi è stato trovato nei servizi. Il codice è probabilmente pulito per questo smell.")
+        return
+
+    print(f"\n_Trovati in totale {len(all_retrieved_snippets_from_all_services)} snippet di codice potenzialmente sospetti da analizzare.")
+
+    # Il resto del codice per formattare il prompt e chiamare l'LLM rimane quasi invariato
     smell_definition = f"Description: {smell_data['brief_description']}"
     positive_examples = "\n\n".join(
         [f"--- Positive Example ({ex['language']}) ---\n{ex['positive_example']}\nExplanation: {ex['explanation']}" for ex in smell_data.get('positive', [])]
-        ) if 'positive' in smell_data else "No positive examples available."
+    ) if 'positive' in smell_data else "No positive examples available."
 
-    # Contesto dal codice utente: solo gli snippet sospetti
     code_context_for_prompt = "\n\n".join(
-        [f"--- Snippet from file: {doc.metadata.get('source', 'Unknown')} ---\n```\n{doc.page_content}\n```" for doc in retrieved_code_snippets]
+        [f"--- Snippet from file: {doc.metadata.get('source', 'Unknown')} ---\n```\n{doc.page_content}\n```" for doc in all_retrieved_snippets_from_all_services]
     )
     
     final_prompt_string = prompt_template.format(
@@ -324,32 +290,27 @@ while True:
         smell_definition=smell_definition,
         positive_examples=positive_examples,
         additional_folder_context=code_context_for_prompt
-    ).replace("[Smell Name]", user_query) # Sostituisce il placeholder nel template
+    ).replace("[Smell Name]", user_query)
 
+    print("\n--- Prompt Finale (prima dell'invio all'LLM) ---")
+    print(final_prompt_string) # Decommenta per debug
+    print(f"(Lunghezza prompt: {len(final_prompt_string)} caratteri)")
 
-
-    # ("\n--- Prompt Finale (prima dell'invio all'LLM) ---")
-    # è commentato perchè è lungo, usarlo come debug
-    print(final_prompt_string) 
-    print(f"(Prompt length: {len(final_prompt_string)} characters)")
-
-
-    # Conteggio dei token (opzionale)
     token_count = count_tokens_for_llm_input(final_prompt_string, llm)
     if token_count != -1:
-        print(f"Number of tokens estimated for input to the LLM: {token_count}")
+        print(f"Numero di token stimati per l'input all'LLM: {token_count}")
 
-    # Invocazione dell'LLM con il prompt composto
-    print("\nRequest to the LLM in progress...")
+    print("\nRichiesta all'LLM in corso...")
     try:
         response = llm.invoke(final_prompt_string)
         answer = response.content
-        print("\n--- LLM's response ---")
+        print("\n--- Risposta dell'LLM ---")
         print(answer)
     except Exception as e:
-        print(f"Error during LLM invocation: {e}")
-        print("Make sure that the LLM model is configured correctly and that the API key is valid and enabled.")
+        print(f"Errore durante l'invocazione dell'LLM: {e}")
+        return # Esce dalla funzione in caso di errore
 
+    # Logica di valutazione
     ground_truth = {
         "customer-core": ["publicly accessible microservice"],
         "customer-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
@@ -364,14 +325,13 @@ while True:
 
     smell_name = user_query.lower()
     predicted_services = extract_services_from_llm_output(answer)
-    #test
-    print(">>> predicted_services:", predicted_services)
+    print(">>> Servizi predetti:", predicted_services)
 
-    predicted = {(s, smell_name) for s in predicted_services}
+    predicted = {(os.path.basename(s), smell_name) for s in predicted_services}
     true_labels = {(s, smell_name) for s, smells in ground_truth.items() if smell_name in smells}
-    #test
-    print(">>> predicted set:", predicted)
-    print(">>> true_labels set:", true_labels)
+    
+    print(">>> Set Predetto:", predicted)
+    print(">>> Set Ground Truth:", true_labels)
 
     TP = len(predicted & true_labels)
     FP = len(predicted - true_labels)
@@ -381,4 +341,28 @@ while True:
     recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
     f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
 
+    print(f"\n--- Valutazione ---")
     print(f"Precision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}")
+
+print(f"\n-----------------RAG with Gemini for {TYPE_SMELL} Smell detection----------------")
+print("Scrivi il nome dello smell su cui vuoi fare l'analisi (o 'exit' per uscire).")
+
+while True:
+    user_query = input(f"\nNome dello {TYPE_SMELL} Smell: ")
+    if user_query.lower() in ["exit", "quit", "esci", "stop", "x", "q"]:
+        print("Uscita dal programma.")
+        break
+
+    # Caricamento dello smell
+    smell_data = load_smell_data(user_query, knowledge_base_dir)
+    if not smell_data:
+        continue # Chiedi un nuovo input se lo smell non esiste
+
+    # Input della cartella base che contiene i microservizi
+    folder_path_input = input("Specifica il path della cartella base contenente i microservizi da analizzare: ").strip()
+    if not (folder_path_input and os.path.isdir(folder_path_input)):
+        print("Path della cartella non valido o vuoto. Riprova.")
+        continue
+
+    # Chiama la nuova funzione di analisi che gestisce tutto il processo
+    analyze_services_individually(smell_data, folder_path_input, user_query)
