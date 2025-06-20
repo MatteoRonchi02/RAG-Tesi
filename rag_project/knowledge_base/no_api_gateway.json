@@ -67,6 +67,12 @@
       "language": "Kotlin",
       "negative_example": "@Component\nclass JwtAuthFilter : OncePerRequestFilter() {\n    override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {\n        // Perform token validation\n    }\n}",
       "explanation": "Like the Java example, this Kotlin filter handles authentication. With no centralized gateway, each service must protect itself, leading to repetitive code and potential inconsistencies."
+    },
+    { 
+      "artifact_type": "deployment",
+      "language": "YAML",
+      "negative_example": "services:\n  api-gateway:\n    image: my-gateway\n    ports:\n      - \"8080:8080\"\n\n  order-service:\n    image: my-orders\n    ports:\n      - \"8081:8080\"  # <-- VULNERABILITY\n\n  product-service:\n    image: my-products\n    ports:\n      - \"8082:8080\"  # <-- VULNERABILITY",
+      "explanation": "This is the 'Bypassable Gateway' variant of the smell. Although an 'api-gateway' service exists, other services ('order-service', 'product-service') also expose their ports directly. This allows clients to bypass the gateway, defeating its purpose and reintroducing the problems of direct access."
     }
   ],
   "positive": [
@@ -129,6 +135,12 @@
       "language": "YAML",
       "positive_example": "spring:\n  cloud:\n    gateway:\n      routes:\n        - id: order-service\n          uri: lb://order-service\n          predicates:\n            - Path=/orders/**\n        - id: product-service\n          uri: lb://product-service\n          predicates:\n            - Path=/products/**",
       "explanation": "This Spring Cloud Gateway config in YAML defines routes for services with 'lb://' URIs. It uses logical names 'order-service' and 'product-service'. The gateway will distribute requests across instances of each service and present a unified API to clients."
+    },
+    {
+      "artifact_type": "deployment",
+      "language": "YAML",
+      "positive_example": "services:\n  api-gateway:\n    image: my-gateway\n    ports:\n      - \"8080:8080\" # <-- CORRECT\n\n  order-service:\n    image: my-orders\n    # No 'ports' section, so it is not exposed.\n\n  product-service:\n    image: my-products\n    # No 'ports' section.",
+      "explanation": "This is a correct deployment configuration that enforces the API Gateway pattern. Only the gateway service exposes a port to the outside world. All other services are internal and can only be reached through the gateway, ensuring that all cross-cutting concerns are applied uniformly."
     }
 ],
   "meta_data": {

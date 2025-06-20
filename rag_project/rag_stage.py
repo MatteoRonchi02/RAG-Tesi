@@ -14,8 +14,20 @@ from dotenv import load_dotenv
 from langchain.text_splitter import RecursiveCharacterTextSplitter, Language
 from tqdm import tqdm
 
+# Cartelle da ignorare completamente (non verranno nemmeno esplorate)
+IGNORE_DIRS = {'.git', '.idea', '.vscode', 'target', 'build', '.mvn', 'testutil'}
+# Frammenti di percorso che, se presenti, causano l'esclusione della cartella
+IGNORE_PATH_FRAGMENTS = {os.path.join('src', 'test')}
+# File specifici da ignorare per nome
+IGNORE_FILES = {'mvnw', 'Dockerfile',  'pom.xml'}
+# File da ignorare in base al suffisso (per DTO, Entità, etc.)
+IGNORE_FILENAME_SUFFIXES = {
+    'DTO.java', 'Entity.java', 'Event.java', 
+    'Request.java', 'Response.java', 'Exception.java'
+}
+
 #Cambiare il tipo di smell da analizzare
-TYPE_SMELL = os.getenv("TYPE_SMELL", "Archtectural")   
+TYPE_SMELL = os.getenv("TYPE_SMELL", "Architectural")
 
 load_dotenv()
 aiplatform.init(
@@ -53,7 +65,9 @@ LOADER_MAPPING = {
     ".sh": (TextLoader, {"encoding": "utf-8"}),
     ".groovy": (TextLoader, {"encoding": "utf-8"}),
     ".json": (TextLoader, {"encoding": "utf-8"}),
-    ".properties": (TextLoader, {"encoding": "utf-8"})
+    ".properties": (TextLoader, {"encoding": "utf-8"}),
+    ".yml": (TextLoader, {"encoding": "utf-8"}),
+    ".gandle": (TextLoader, {"encoding": "utf-8"})
 }
 
 # Carica i dati della KB dal formato json
@@ -77,8 +91,20 @@ def load_smell_data(smell_name: str, kb_directory: str) -> dict | None:
 def load_folder_path_documents(directory: str) -> list[Document]:
     all_documents = []
     print(f"Uploading documents from the chosen {directory} path")
-    for root, _, files in os.walk(directory):
+    for root, dirs, files in os.walk(directory):
+
+        dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+        if any(fragment in root for fragment in IGNORE_PATH_FRAGMENTS):
+            continue
+
         for filename in files:
+            if filename in IGNORE_FILES:
+                print(f"Ignoring specific file: {os.path.join(root, filename)}")
+                continue
+            if any(filename.endswith(suffix) for suffix in IGNORE_FILENAME_SUFFIXES):
+                print(f"Ignoring by suffix: {os.path.join(root, filename)}")
+                continue
+            
             # Controllo per ignorare le estensioni non mappate
             ext = os.path.splitext(filename)[-1].lower() if os.path.splitext(filename)[-1] else filename.lower()
             if ext in LOADER_MAPPING:
@@ -97,6 +123,39 @@ def load_folder_path_documents(directory: str) -> list[Document]:
                     print(f"Error while loading {file_path}: {e}")
 
     print(f"Total documents uploaded by {directory}: {len(all_documents)}\n")
+    return all_documents
+
+def load_single_file(file_path: str) -> list[Document]:
+    all_documents = []
+
+    if not os.path.isfile(file_path):
+        print(f"'{file_path}' non è un file valido.")
+        return []
+
+    filename = os.path.basename(file_path)
+    lower = filename.lower()
+
+    if lower in ("package-lock.json", "yarn.lock"):
+        print(f"File ignorato: {filename}")
+        return []
+
+    ext = os.path.splitext(filename)[-1].lower() if os.path.splitext(filename)[-1] else filename.lower()
+    if ext not in LOADER_MAPPING:
+        print(f"Estensione non supportata per il file: {filename}")
+        return []
+
+    loader_class, loader_kwargs = LOADER_MAPPING[ext]
+    print(f"Upload singolo file: {file_path} (type: {ext})")
+    try:
+        loader = loader_class(file_path, **loader_kwargs)
+        docs = loader.load()
+        if docs:
+            for doc in docs:
+                doc.metadata["source"] = file_path
+            all_documents.extend(docs)
+    except Exception as e:
+        print(f"Errore durante il caricamento del file '{file_path}': {e}")
+
     return all_documents
 
 # Server per fare il chunk del codice in base al suo linguaggio
@@ -155,31 +214,55 @@ except Exception as e:
 
 print("=============================================================================")
 
+SMELL_INSTRUCTIONS = {
+    "no api gateway": """Your analysis for this specific smell MUST check for TWO distinct conditions:
+        a. **Total Absence**: First, check the provided code for any evidence of a gateway component (e.g., using Spring Cloud Gateway, Zuul, Ocelot, etc.). If there is no such code across all services, you must report that the smell is present at the system level.
+        b. **Bypassable Gateway**: If gateway code *does* exist, you MUST then inspect any `docker-compose.yml` file or similar container orchestration configuration. If services *other than* the designated API Gateway expose their `ports` to the public internet, this is a critical flaw. You must report this as a form of the 'No API Gateway' smell, as the gateway's routing is not being properly enforced, allowing direct access to microservices.""",
+    
+    "shared persistence" : """Your analysis for this specific smell MUST focus on identifying if multiple services access the same database schema. Pay close attention to:
+        a. **Shared Configuration**: Look for configuration files (`application.properties`, `application.yml`, `.env`, etc.) from DIFFERENT services that point to the EXACT SAME database URL, host, and schema/database name.
+        b. **Cross-Service Entity Usage**: Be suspicious if you see Data Transfer Objects (DTOs) or database entities that clearly belong to one service's domain (e.g., `OrderDetails`) being used in the repository or data access layer of a completely different service (e.g., in the `ShippingService`).
+        c. **Shared Database Migration Scripts**: Check if multiple services use or reference the same set of database migration scripts (e.g., Flyway or Liquibase files) that define tables for different domains. """,
+
+    "endpoint based service interaction": """Your analysis for this specific smell MUST focus on identifying synchronous, point-to-point communication between services, which creates tight coupling. Look for the following evidence:
+        a. **HTTP Client Usage**: Identify the use of HTTP clients to call other internal services. Key examples include `RestTemplate`, `WebClient`, or `@FeignClient` annotations in Java/Spring; `HttpClient` in C#/.NET; or `requests`/`aiohttp` in Python.
+        b. **Direct Service URLs**: Look for hard-coded URLs or configuration entries (`application.yml`, etc.) that point directly to another service's address (e.g., `http://order-service:8080/api/v1/orders`).
+        c. **Absence of Messaging**: The lack of any message queue or event streaming client libraries (e.g., for RabbitMQ, Kafka, SQS, NATS) strongly suggests that communication is happening synchronously via direct HTTP calls. The presence of HTTP clients combined with the absence of messaging clients is a strong indicator of this smell.""",
+
+    "wobbly service interaction": """Your analysis for this specific smell MUST focus on identifying inefficient and "chatty" communication patterns where a service makes multiple synchronous calls to another single service to complete one task. Look for:
+        a. **Calls Inside Loops**: This is the strongest indicator. Search for code where an HTTP client (like `RestTemplate`, `WebClient`, `FeignClient`) is invoked REPEATEDLY inside a `for`, `while`, or `stream().forEach()` loop. For example, getting a list of IDs and then calling another service for each single ID in the list.
+        b. **Sequential Calls to the Same Service**: Look for methods that make multiple, separate calls to the same remote service to gather different pieces of data about the same entity. For example, `product = productService.getProduct(id)`, then `stock = productService.getStock(id)`, then `reviews = productService.getReviews(id)`. This indicates the remote API is not coarse-grained enough.
+        c. **Complex Data Aggregation**: Identify client-side logic that exists only to stitch together the results of multiple small calls from another service. This logic is a symptom of the wobbly interaction."""
+}
 
 # Nuovo prompt, si può migliorare
 prompt_template_str = """Instructions:
-1. You are an expert {TYPE_SMELL} auditor. Your task is to analyze code from a multi-service project for a given '{TYPE_SMELL}' smell.
-2. The analysis MUST consider the interaction BETWEEN different services. The code snippets provided come from various services within the same project.
-3. The 'Smell Definition' provides the official description of the {TYPE_SMELL} smell. Pay close attention to how it describes interactions.
-4. The 'Positive Examples' are code snippets that represent good, decoupled practices.
-5. The 'Suspicious Code Snippets' are chunks of code retrieved from the user's project. Each snippet's source file path indicates which service it belongs to.
-6. Your primary goal is to analyze EACH suspicious snippet to determine if it contributes to the smell, especially by creating illegal dependencies between services. For 'Shared Persistence', this means looking for multiple services accessing the same database.
-7. Pay special attention to:
-   - Configuration files (e.g., application.properties, .yml, Dockerfiles) from DIFFERENT services pointing to the SAME database URL or schema.
-   - Shared data-access libraries or common JPA entities used across multiple services.
-   - Direct database queries from one service to a table that should belong to another service.
-8. Structure your answer as follows:
+1. You are an expert {TYPE_SMELL} auditor. Your task is to analyze specific code snippets for a given {TYPE_SMELL} smell.
+2. The 'Smell Definition' provides the official description and remediation strategies for the {TYPE_SMELL} smell.
+3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
+4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
+5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
+6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - Create a list that contains ONLY services that ONLY contain {TYPE_SMELL} smell, like this: "Analyzed services with Architectural smell: \n - name of service", if there are not make an empy list.
+   - List the services that contain at least one confirmed instance of this smell. Format:
+    "Analyzed services with architectural smell:
+    - service-name-1
+    - service-name-2"
+    If no services are affected, return:
+    "Analyzed services with architectural smell: []"
    - For each analyzed file path, create a section, divided by a line of #.
-   - Under each file path, list the snippets that ARE VULNERABLE.
-   - For each vulnerable snippet, provide:
+   - Under each file path, list the snippets that ARE AFFECTED BY THE SMELL.
+   - For each affected snippet, provide:
      a. The line of code or block that contains the smell.
-     b. A clear explanation of WHY it is a vulnerability, specifically explaining HOW it connects different services inappropriately.
-   - If NO vulnerabilities are found after analyzing all snippets, state clearly: "No instances of the {TYPE_SMELL} smell were found in the provided code."
+     b. A clear explanation of WHY it is an architectural smell in this context.
+   - If a snippet is NOT affected by the smell, you don't need to mention it.
+   - If, after analyzing all provided snippets, you find NO instances of the smell, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
 
 --- Smell Definition ---
 {smell_definition}
+
+--- Smell-specific detection instructions ---
+{smell_specific_instructions}
 
 --- Positive Examples (without smell) ---
 {positive_examples}
@@ -191,7 +274,7 @@ Answer (in the same language as the Question):"""
 
 # Creazione efettiva del prompt
 prompt_template = PromptTemplate(
-    input_variables=["TYPE_SMELL", "smell_definition", "positive_examples", "additional_folder_context"],
+    input_variables=["TYPE_SMELL", "smell_definition", "positive_examples", "additional_folder_context", "smell_specific_instructions"],
     template=prompt_template_str
 )
 
@@ -269,7 +352,64 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
             if snippet.page_content not in processed_content:
                 all_retrieved_snippets_from_all_services.append(snippet)
                 processed_content.add(snippet.page_content)
+    try:
+        all_entries = os.listdir(base_folder_path)
+        top_level_files = [f for f in all_entries if os.path.isfile(os.path.join(base_folder_path, f))]
 
+        # Filtro solo i file supportati
+        supported_files = []
+        for f in top_level_files:
+            ext = os.path.splitext(f)[-1].lower()
+            if ext in LOADER_MAPPING:
+                supported_files.append(f)
+
+        if not supported_files:
+            print("Nessun file supportato trovato nella root directory.")
+            return
+
+        print(f"Trovati {len(supported_files)} file supportati nella root: {supported_files}")
+
+        for filename in tqdm(supported_files, desc="Analyzing top-level files"):
+            file_path = os.path.join(base_folder_path, filename)
+            print(f"\nAnalizzo file: {file_path}")
+
+            try:
+                docs = load_single_file(file_path)
+                if not docs:
+                    print(f"Nessun documento caricato da {filename}")
+                    continue
+
+                code_chunks = get_code_chunks(docs)
+                if not code_chunks:
+                    print(f"Nessun chunk generato da {filename}")
+                    continue
+
+                print(f"Creazione vector store per '{filename}'...")
+                file_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
+
+                search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
+                if not search_queries:
+                    print("Nessun 'negative_example' nella KB. Ricerca saltata.")
+                    continue
+
+                search_query_str = "\n".join(search_queries)
+                retrieved_snippets = file_vectorstore.similarity_search(
+                    query=search_query_str,
+                    k=k_per_service
+                )
+
+                print(f"Trovati {len(retrieved_snippets)} snippet sospetti in '{filename}'.")
+
+                for snippet in retrieved_snippets:
+                    if snippet.page_content not in processed_content:
+                        all_retrieved_snippets_from_all_services.append(snippet)
+                        processed_content.add(snippet.page_content)
+
+            except Exception as e:
+                print(f"Errore durante l'elaborazione del file '{filename}': {e}")
+
+    except Exception as e:
+        print(f"Errore nella lettura dei file in '{base_folder_path}': {e}")
     # --- Fine del nuovo ciclo ---
 
     if not all_retrieved_snippets_from_all_services:
@@ -292,7 +432,8 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         TYPE_SMELL=TYPE_SMELL,
         smell_definition=smell_definition,
         positive_examples=positive_examples,
-        additional_folder_context=code_context_for_prompt
+        additional_folder_context=code_context_for_prompt,
+        smell_specific_instructions=SMELL_INSTRUCTIONS.get(user_query.lower(), "No specific instructions available for this smell.")
     ).replace("[Smell Name]", user_query)
 
     print("\n--- Prompt Finale (prima dell'invio all'LLM) ---")
@@ -314,30 +455,21 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         return # Esce dalla funzione in caso di errore
 
     # Logica di valutazione
-    #ground_truth = {
-    #    "customer-core": ["publicly accessible microservice"],
-    #    "customer-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
-    #    "customer-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
-    #    "customer-self-service-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
-    #    "customer-self-service-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
-    #    "policy-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
-    #    "policy-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
-    #    "spring-boot-admin": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic"],
-    #    "risk-management-server": ["publicly accessible microservice", "hardcoded secrets"]
-    #}
-
     ground_truth = {
-        "customers-service": ["endpoint based service interaction"],
-        "accounts-service": ["endpoint based service interaction"],
-        "transactions-service": ["endpoint based service interaction", "wobbly service interaction"],
-        "customers-view-service": ["shared persistence","endpoint based service interaction"],
-        "accounts-view-service": ["shared persistence","endpoint based service interaction"]
+        "customers-service": ["endpoint based service interaction", "no api gateway"],
+        "accounts-service": ["endpoint based service interaction", "no api gateway"],
+        "transactions-service": ["endpoint based service interaction", "wobbly service interaction", "no api gateway"],
+        "customers-view-service": ["shared persistence", "endpoint based service interaction", "no api gateway"],
+        "accounts-view-service": ["shared persistence", "endpoint based service interaction", "no api gateway"],
+        "api-gateway-service": [] ,
+        #I seguenti non sono servizi ma sono stati aggiunti per completezza
+        "common-auth": ["shared persistence"]
     }
 
 
     smell_name = user_query.lower()
     predicted_services = extract_services_from_llm_output(answer)
-    print(">>> Servizi predetti:", predicted_services)
+    print("\n\n>>> Servizi predetti:", predicted_services)
 
     predicted = {(os.path.basename(s), smell_name) for s in predicted_services}
     true_labels = {(s, smell_name) for s, smells in ground_truth.items() if smell_name in smells}
