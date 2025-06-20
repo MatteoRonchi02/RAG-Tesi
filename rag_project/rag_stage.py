@@ -47,14 +47,19 @@ knowledge_base_dir = 'knowledge_base'
 
 # Mappatura estensioni file ai relativi loader
 LOADER_MAPPING = {
-    ".java": (TextLoader, {"encoding": "utf-8"}),
-    ".js": (TextLoader, {"encoding": "utf-8"}),
-    ".vue": (TextLoader, {"encoding": "utf-8"}),
-    ".html": (TextLoader, {"encoding": "utf-8"}),
-    "dockerfile": (TextLoader, {"encoding": "utf-8"}),
-    ".sh": (TextLoader, {"encoding": "utf-8"}),
-    ".groovy": (TextLoader, {"encoding": "utf-8"}),
-    ".json": (TextLoader, {"encoding": "utf-8"})
+    ".java":          (TextLoader, {"encoding": "utf-8"}),
+    #".js":            (TextLoader, {"encoding": "utf-8"}),
+    ".vue":           (TextLoader, {"encoding": "utf-8"}),
+    ".html":          (TextLoader, {"encoding": "utf-8"}),
+    "dockerfile":     (TextLoader, {"encoding": "utf-8"}),
+    ".sh":            (TextLoader, {"encoding": "utf-8"}),
+    ".groovy":        (TextLoader, {"encoding": "utf-8"}),
+    ".json":          (TextLoader, {"encoding": "utf-8"}),
+    ".properties":    (TextLoader, {"encoding": "utf-8"}),
+    ".yml":           (TextLoader, {"encoding": "utf-8"}),
+    ".yaml":          (TextLoader, {"encoding": "utf-8"}),
+    ".env":           (TextLoader, {"encoding": "utf-8"}),
+    ".xml":           (TextLoader, {"encoding": "utf-8"}),
 }
 
 # Carica i dati della KB dal formato json
@@ -78,9 +83,16 @@ def load_smell_data(smell_name: str, kb_directory: str) -> dict | None:
 def load_folder_path_documents(directory: str) -> list[Document]:
     all_documents = []
     print(f"Uploading documents from the chosen {directory} path")
-    for root, _, files in os.walk(directory):
+    for root, dirs, files in os.walk(directory):
+        if "node_modules" in dirs:
+            dirs.remove("node_modules")
+        
         for filename in files:
             # Controllo per ignorare le estensioni non mappate
+            lower = filename.lower()
+            if lower in ("package-lock.json", "yarn.lock"):
+                continue
+
             ext = os.path.splitext(filename)[-1].lower() if os.path.splitext(filename)[-1] else filename.lower()
             if ext in LOADER_MAPPING:
                 file_path = os.path.join(root, filename)
@@ -166,7 +178,7 @@ prompt_template_str = """Instructions:
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
 6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - Create a list that contains only services that contain security smell, like this: "Analyzed services with security smell: \n - name of service".
+   - Create a list that contains ONLY the name of services that ONLY contain security smell, like this: "Analyzed services with security smell: \n - name of service", if there aren't make and empty list.
    - For each analyzed file path, create a section, divided by a line of #.
    - Under each file path, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
@@ -267,7 +279,6 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
                 all_retrieved_snippets_from_all_services.append(snippet)
                 processed_content.add(snippet.page_content)
 
-    # --- Fine del nuovo ciclo ---
 
     if not all_retrieved_snippets_from_all_services:
         print("\nNessuno snippet di codice simile agli esempi è stato trovato nei servizi. Il codice è probabilmente pulito per questo smell.")
