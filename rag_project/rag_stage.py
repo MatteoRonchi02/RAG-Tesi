@@ -135,7 +135,7 @@ def extract_services_from_llm_output(answer: str) -> list[str]:
     in_service_section = False
 
     for line in lines:
-        if "Analyzed services with security smell:" in line:
+        if "Analyzed services with Architectural smell:" in line:
             in_service_section = True
             continue
         if in_service_section:
@@ -170,13 +170,13 @@ prompt_template_str = """Instructions:
    - Direct database queries from one service to a table that should belong to another service.
 8. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - Create a list that contains only services that contain security smell, like this: "Analyzed services with security smell: \n - name of service".
+   - Create a list that contains ONLY services that ONLY contain {TYPE_SMELL} smell, like this: "Analyzed services with Architectural smell: \n - name of service", if there are not make an empy list.
    - For each analyzed file path, create a section, divided by a line of #.
    - Under each file path, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
      a. The line of code or block that contains the smell.
      b. A clear explanation of WHY it is a vulnerability, specifically explaining HOW it connects different services inappropriately.
-   - If NO vulnerabilities are found after analyzing all snippets, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code."
+   - If NO vulnerabilities are found after analyzing all snippets, state clearly: "No instances of the {TYPE_SMELL} smell were found in the provided code."
 
 --- Smell Definition ---
 {smell_definition}
@@ -315,23 +315,23 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
 
     # Logica di valutazione
     #ground_truth = {
-        "customer-core": ["publicly accessible microservice"],
-        "customer-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
-        "customer-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
-        "customer-self-service-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
-        "customer-self-service-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
-        "policy-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
-        "policy-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
-        "spring-boot-admin": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic"],
-        "risk-management-server": ["publicly accessible microservice", "hardcoded secrets"]
+    #    "customer-core": ["publicly accessible microservice"],
+    #    "customer-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
+    #    "customer-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
+    #    "customer-self-service-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
+    #    "customer-self-service-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
+    #    "policy-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
+    #    "policy-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
+    #    "spring-boot-admin": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic"],
+    #    "risk-management-server": ["publicly accessible microservice", "hardcoded secrets"]
     #}
 
     ground_truth = {
-        "customer-service": ["endpoint based service interaction"],
-        "account-service": ["endpoint based service interaction"],
-        "transaction-service": ["endpoint based service interaction", "wobbly service interaction"],
-        "customer-view-service": ["shared persistence","endpoint based service interaction"],
-        "account-view-service": ["shared persistence","endpoint based service interaction"]
+        "customers-service": ["endpoint based service interaction"],
+        "accounts-service": ["endpoint based service interaction"],
+        "transactions-service": ["endpoint based service interaction", "wobbly service interaction"],
+        "customers-view-service": ["shared persistence","endpoint based service interaction"],
+        "accounts-view-service": ["shared persistence","endpoint based service interaction"]
     }
 
 
