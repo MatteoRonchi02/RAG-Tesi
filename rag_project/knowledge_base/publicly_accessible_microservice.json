@@ -1,6 +1,6 @@
 {
   "smell_name": "Publicly Accessible Microservices",
-  "brief_description": "This smell occurs when internal microservices, which should not be exposed to the Internet, are publicly reachable. These services (e.g., databases, message queues, core business services) become a direct target for attackers if they are not adequately protected at the network level. Code snippets containing these words: ‘ports:’ , ‘0.0.0’, ‘NodePort’ might contain this smell, check them all.",
+  "brief_description": "This smell occurs when internal microservices, which should not be exposed to the Internet, are publicly reachable. These services (e.g., databases, message queues, core business services) become a direct target for attackers if they are not adequately protected at the network level. Code snippets containing these words: ‘ports:’ , ‘0.0.0’, ‘NodePort’ might contain this smell, check them all; especially in docker-compose file",
   "microservices_context": [
     "customer-core",
     "policy-management-backend",
@@ -10,16 +10,22 @@
   "manifestations": [
     {
       "artifact_type": "Deployment Configuration",
-      "language": "Docker Compose (YAML)",
+      "language": "docker-compose",
       "negative_example": "services:\n  customer-core:\n    image: lakesidemutual/customer-core\n    ports:\n      - \"8081:8080\"",
-      "explanation": "The `customer-core` service, which might be an internal service, maps the container's port 8080 to port 8081 on the host machine. If the host has a public IP, the service becomes accessible from the Internet."
+      "explanation": "The service, which might be an internal service, maps the container's port 8080 to port 8081 on the host machine. If the host has a public IP, the service becomes accessible from the Internet."
+    },
+    {
+      "artifact_type": "Deployment Configuration",
+      "language": "docker-compose",
+      "negative_example": "name-services:\n  build: name build\n image: project/name-service\n depends_on: name-service \n  environment: \n  ports: \n - 3020:80", 
+      "explanation": "The service exposes port directly making it publicly accessible. This is a 'publicly accessible microservice' smell if not protected by authentication or a firewall."
     },
     {
       "artifact_type": "docker-compose",
       "language": "yaml",
       "negative_example": "services:\n  payment-service:\n    build: ./payment-service\n    ports:\n      - \"8080:8080\"",
-      "explanation": "The 'payment-service' microservice exposes port 8080 directly on the host machine, making it publicly accessible. This is a 'publicly accessible microservice' smell if not protected by authentication or a firewall."
-},
+      "explanation": "The microservice exposes port 8080 directly on the host machine, making it publicly accessible. This is a 'publicly accessible microservice' smell if not protected by authentication or a firewall."
+    },
     {
       "artifact_type": "Deployment Configuration",
       "language": "docker-compose",

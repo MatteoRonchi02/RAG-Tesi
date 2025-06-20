@@ -116,23 +116,23 @@ def load_single_file(file_path: str) -> list[Document]:
     all_documents = []
 
     if not os.path.isfile(file_path):
-        print(f"'{file_path}' non è un file valido.")
+        print(f"'{file_path}' is not a valid file.")
         return []
 
     filename = os.path.basename(file_path)
     lower = filename.lower()
 
     if lower in ("package-lock.json", "yarn.lock"):
-        print(f"File ignorato: {filename}")
+        print(f"Ignored file: {filename}")
         return []
 
     ext = os.path.splitext(filename)[-1].lower() if os.path.splitext(filename)[-1] else filename.lower()
     if ext not in LOADER_MAPPING:
-        print(f"Estensione non supportata per il file: {filename}")
+        print(f"Unsupported file extension: {filename}")
         return []
 
     loader_class, loader_kwargs = LOADER_MAPPING[ext]
-    print(f"Upload singolo file: {file_path} (type: {ext})")
+    print(f"Uploading single file: {file_path} (type: {ext})")
     try:
         loader = loader_class(file_path, **loader_kwargs)
         docs = loader.load()
@@ -141,7 +141,7 @@ def load_single_file(file_path: str) -> list[Document]:
                 doc.metadata["source"] = file_path
             all_documents.extend(docs)
     except Exception as e:
-        print(f"Errore durante il caricamento del file '{file_path}': {e}")
+        print(f"Error while loading file '{file_path}': {e}")
 
     return all_documents
 
@@ -201,6 +201,63 @@ except Exception as e:
 
 print("=============================================================================")
 
+SMELL_INSTRUCTIONS = {
+    "hardcoded secrets": """
+Look specifically for:
+- Passwords, API keys, secrets or tokens written in code or configs.
+- Environment variables or JSON keys like "password", "secret", "token", etc.
+- Credentials exposed in `application.properties`, `.env`, `.json`, or code.
+
+Do NOT flag:
+- Configurations that read from environment variables (e.g., `${TOKEN}`).
+- Placeholder values like `<password>` or `"***"` unless clearly real.
+
+Explain:
+- What the hardcoded secret is.
+- Why it creates a security risk (e.g., credentials leak, repo exposure).
+""",
+
+    "publicly accessible microservice": """
+Look specifically for:
+- Services exposing ports via Docker or Kubernetes (e.g., "8080:8080", NodePort, LoadBalancer).
+- Bindings to 0.0.0.0 or localhost where not appropriate.
+- Services exposing internal tools like ActiveMQ, Redis, or databases.
+
+Do NOT flag:
+- Legitimately exposed public frontends behind an API Gateway.
+
+Explain:
+- Why this service is exposed and how that creates risk (unauthenticated access, attack surface).
+""",
+
+    "unauthenticated traffic": """
+Look specifically for:
+- Services that use HTTP instead of HTTPS in internal or external communication.
+- Endpoints or services with no authentication mechanism.
+- Lack of authorization headers or session validation in frontend/backend flows.
+
+Do NOT flag:
+- Endpoints that are clearly behind an auth gateway.
+
+Explain:
+- Why this traffic is unauthenticated.
+- What access an attacker would gain.
+""",
+
+    "insufficient access control": """
+Look specifically for:
+- REST endpoints that expose sensitive operations without checking roles or permissions.
+- Lack of use of access control annotations (e.g., @PreAuthorize, @RolesAllowed).
+- No middleware/auth layer on critical routes.
+
+Do NOT flag:
+- Public resources clearly meant to be exposed (e.g., `/login`, `/docs`).
+
+Explain:
+- Which access control is missing.
+- What type of unauthorized access could occur.
+"""
+}
 
 # Nuovo prompt, si può migliorare
 prompt_template_str = """Instructions:
@@ -217,8 +274,8 @@ prompt_template_str = """Instructions:
     - service-name-2"
     If no services are affected, return:
     "Analyzed services with security smell: []"
-   - For each analyzed file path, create a section, divided by a line of #.
-   - Under each file path, list the snippets that ARE VULNERABLE.
+   - For each analyzed file, create a section, divided by a line of #.
+   - Under each file, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
      a. The line of code or block that contains the smell.
      b. A clear explanation of WHY it is a vulnerability in this context.
@@ -227,6 +284,9 @@ prompt_template_str = """Instructions:
 
 --- Smell Definition ---
 {smell_definition}
+
+--- Smell-specific detection instructions ---
+{smell_specific_instructions}
 
 --- Positive Examples (without smell) ---
 {positive_examples}
@@ -238,7 +298,7 @@ Answer (in the same language as the Question):"""
 
 # Creazione efettiva del prompt
 prompt_template = PromptTemplate(
-    input_variables=["TYPE_SMELL", "smell_definition", "positive_examples", "additional_folder_context"],
+    input_variables=["TYPE_SMELL", "smell_definition", "positive_examples", "additional_folder_context", "smell_specific_instructions"],
     template=prompt_template_str
 )
 
@@ -247,71 +307,61 @@ def count_tokens_for_llm_input(text_input: str, llm_instance: ChatGoogleGenerati
     try:
         return llm_instance.get_num_tokens(text_input)
     except Exception as e:
-        print(f"Errore durante il conteggio dei token: {e}")
+        print(f"Error while counting tokens: {e}")
         return -1
 
 def analyze_services_individually(smell_data, base_folder_path, user_query):
-    """
-    Esegue l'analisi RAG iterando su ogni microservizio trovato nel percorso base.
-    """
-    # 1. Identifica le cartelle dei servizi
+    #Esegue l'analisi RAG iterando su ogni microservizio trovato nel percorso base.
     try:
         service_folders = [f for f in os.listdir(base_folder_path) if os.path.isdir(os.path.join(base_folder_path, f))]
-        # Filtra cartelle non pertinenti come .git, etc.
         service_folders = [f for f in service_folders if not f.startswith('.') and f not in ['kubernetes', 'knowledge_base']]
         if not service_folders:
-            print(f"Nessuna cartella di servizio trovata in '{base_folder_path}'. Assicurati che il path contenga le cartelle dei microservizi.")
+            print(f"No service folders found in '{base_folder_path}'. Make sure the path contains the microservice folders.")
             return
         print(f"Found {len(service_folders)} services to analyze: {service_folders}")
     except Exception as e:
-        print(f"Errore nella lettura delle cartelle dei servizi da '{base_folder_path}': {e}")
+        print(f"Error reading service folders from '{base_folder_path}': {e}")
         return
 
     all_retrieved_snippets_from_all_services = []
     processed_content = set()
-    
-    # K snippet da recuperare per OGNI servizio.
+
+    # K snippets to retrieve for EACH service.
     k_per_service = 5
 
-    # 2. Itera su ogni servizio
     for service_name in tqdm(service_folders, desc="Analyzing services"):
         service_path = os.path.join(base_folder_path, service_name)
         print(f"\n--- Analyzing service: {service_name} ---")
 
-        # 3. Carica e splitta i documenti SOLO per il servizio corrente
         source_code_docs = load_folder_path_documents(service_path)
         if not source_code_docs:
-            print(f"Nessun documento di codice sorgente trovato per il servizio '{service_name}'.")
+            print(f"No source code documents found for service '{service_name}'.")
             continue
             
         code_chunks = get_code_chunks(source_code_docs)
         if not code_chunks:
-            print(f"Impossibile dividere il codice sorgente in chunk per il servizio '{service_name}'.")
+            print(f"Unable to split source code into chunks for service '{service_name}'.")
             continue
 
-        # 4. Crea un vector store TEMPORANEO e ISOLATO per il servizio corrente
-        print(f"Creazione del vector store temporaneo per '{service_name}'...")
-        # NOTA: from_documents è più diretto se non si ha bisogno di gestire i batch manualmente
+        print(f"Creating temporary vector store for '{service_name}'...")
+
         service_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
-        print(f"Vector store per '{service_name}' creato con successo.")
+        print(f"Vector store for '{service_name}' created successfully.")
 
-
-        # 5. Esegui la similarity search su questo vector store isolato
         search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
         if not search_queries:
-            print("Attenzione: Nessun 'negative_example' trovato nella KB per questo smell. L'analisi potrebbe essere imprecisa.")
+            print("Warning: No 'negative_example' found in the KB for this smell. The analysis may be inaccurate.")
             continue
         search_query_str = "\n".join(search_queries)
 
-        print(f"Ricerca di {k_per_service} snippet sospetti per il servizio '{service_name}'...")
+        print(f"Searching for {k_per_service} suspicious snippets for service '{service_name}'...")
         retrieved_for_service = service_vectorstore.similarity_search(
             query=search_query_str,
             k=k_per_service
         )
         
-        print(f"Recuperati {len(retrieved_for_service)} snippet per il servizio '{service_name}'.")
+        print(f"Retrieved {len(retrieved_for_service)} snippets for service '{service_name}'.")
 
-        # Aggiungi gli snippet alla lista globale, evitando duplicati di contenuto
         for snippet in retrieved_for_service:
             if snippet.page_content not in processed_content:
                 all_retrieved_snippets_from_all_services.append(snippet)
@@ -321,7 +371,7 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         all_entries = os.listdir(base_folder_path)
         top_level_files = [f for f in all_entries if os.path.isfile(os.path.join(base_folder_path, f))]
 
-        # Filtro solo i file supportati
+        # Filter only supported files
         supported_files = []
         for f in top_level_files:
             ext = os.path.splitext(f)[-1].lower()
@@ -329,32 +379,32 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
                 supported_files.append(f)
 
         if not supported_files:
-            print("Nessun file supportato trovato nella root directory.")
+            print("No supported files found in the root directory.")
             return
 
-        print(f"Trovati {len(supported_files)} file supportati nella root: {supported_files}")
+        print(f"Found {len(supported_files)} supported files in the root: {supported_files}")
 
         for filename in tqdm(supported_files, desc="Analyzing top-level files"):
             file_path = os.path.join(base_folder_path, filename)
-            print(f"\nAnalizzo file: {file_path}")
+            print(f"\nAnalyzing file: {file_path}")
 
             try:
                 docs = load_single_file(file_path)
                 if not docs:
-                    print(f"Nessun documento caricato da {filename}")
+                    print(f"No documents loaded from {filename}")
                     continue
 
                 code_chunks = get_code_chunks(docs)
                 if not code_chunks:
-                    print(f"Nessun chunk generato da {filename}")
+                    print(f"No chunks generated from {filename}")
                     continue
 
-                print(f"Creazione vector store per '{filename}'...")
+                print(f"Creating vector store for '{filename}'...")
                 file_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
 
                 search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
                 if not search_queries:
-                    print("Nessun 'negative_example' nella KB. Ricerca saltata.")
+                    print("No 'negative_example' found in the KB. Skipping search.")
                     continue
 
                 search_query_str = "\n".join(search_queries)
@@ -363,7 +413,7 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
                     k=k_per_service
                 )
 
-                print(f"Trovati {len(retrieved_snippets)} snippet sospetti in '{filename}'.")
+                print(f"Found {len(retrieved_snippets)} suspicious snippets in '{filename}'.")
 
                 for snippet in retrieved_snippets:
                     if snippet.page_content not in processed_content:
@@ -371,18 +421,17 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
                         processed_content.add(snippet.page_content)
 
             except Exception as e:
-                print(f"Errore durante l'elaborazione del file '{filename}': {e}")
+                print(f"Error while processing file '{filename}': {e}")
 
     except Exception as e:
-        print(f"Errore nella lettura dei file in '{base_folder_path}': {e}")
+        print(f"Error reading files in '{base_folder_path}': {e}")
 
     if not all_retrieved_snippets_from_all_services:
-        print("\nNessuno snippet di codice simile agli esempi è stato trovato nei servizi. Il codice è probabilmente pulito per questo smell.")
+        print("\nNo code snippets similar to the examples were found in the services. The code is likely clean from this smell.")
         return
 
-    print(f"\n_Trovati in totale {len(all_retrieved_snippets_from_all_services)} snippet di codice potenzialmente sospetti da analizzare.")
+    print(f"\nFound a total of {len(all_retrieved_snippets_from_all_services)} potentially suspicious code snippets to analyze.")
 
-    # Il resto del codice per formattare il prompt e chiamare l'LLM rimane quasi invariato
     smell_definition = f"Description: {smell_data['brief_description']}"
     positive_examples = "\n\n".join(
         [f"--- Positive Example ({ex['language']}) ---\n{ex['positive_example']}\nExplanation: {ex['explanation']}" for ex in smell_data.get('positive', [])]
@@ -396,25 +445,26 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         TYPE_SMELL=TYPE_SMELL,
         smell_definition=smell_definition,
         positive_examples=positive_examples,
-        additional_folder_context=code_context_for_prompt
+        additional_folder_context=code_context_for_prompt,
+        smell_specific_instructions=SMELL_INSTRUCTIONS.get(user_query.lower(), "No specific instructions available.")
     ).replace("[Smell Name]", user_query)
 
-    print("\n--- Prompt Finale (prima dell'invio all'LLM) ---")
+    print("\n--- Final Prompt (before submission to the LLM) ---")
     print(final_prompt_string) # Decommenta per debug
-    print(f"(Lunghezza prompt: {len(final_prompt_string)} caratteri)")
+    print(f"(Prompt lenght: {len(final_prompt_string)})")
 
     token_count = count_tokens_for_llm_input(final_prompt_string, llm)
     if token_count != -1:
-        print(f"Numero di token stimati per l'input all'LLM: {token_count}")
+        print(f"Number of tokens estimated for input to the LLM: {token_count}")
 
-    print("\nRichiesta all'LLM in corso...")
+    print("\nRequest to the LLM in progress...")
     try:
         response = llm.invoke(final_prompt_string)
         answer = response.content
-        print("\n--- Risposta dell'LLM ---")
+        print("\n--- LLM Response ---")
         print(answer)
     except Exception as e:
-        print(f"Errore durante l'invocazione dell'LLM: {e}")
+        print(f"Error during LLM invocation: {e}")
         return # Esce dalla funzione in caso di errore
 
     # Logica di valutazione
@@ -448,27 +498,27 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
     recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
     f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
 
-    print(f"\n--- Valutazione ---")
+    print(f"\n--- Evaluation ---")
     print(f"Precision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}")
 
 print(f"\n-----------------RAG with Gemini for {TYPE_SMELL} Smell detection----------------")
 print("Scrivi il nome dello smell su cui vuoi fare l'analisi (o 'exit' per uscire).")
 
 while True:
-    user_query = input(f"\nNome dello {TYPE_SMELL} Smell: ")
+    user_query = input(f"\nName of the {TYPE_SMELL} Smell: ")
     if user_query.lower() in ["exit", "quit", "esci", "stop", "x", "q"]:
-        print("Uscita dal programma.")
+        print("Exiting the programme.")
         break
 
     # Caricamento dello smell
     smell_data = load_smell_data(user_query, knowledge_base_dir)
     if not smell_data:
-        continue # Chiedi un nuovo input se lo smell non esiste
+        continue 
 
     # Input della cartella base che contiene i microservizi
-    folder_path_input = input("Specifica il path della cartella base contenente i microservizi da analizzare: ").strip()
+    folder_path_input = input("Specifies the path to the base folder containing the microservices to be analysed:").strip()
     if not (folder_path_input and os.path.isdir(folder_path_input)):
-        print("Path della cartella non valido o vuoto. Riprova.")
+        print("Invalid or empty folder path. Please try again.")
         continue
 
     # Chiama la nuova funzione di analisi che gestisce tutto il processo
