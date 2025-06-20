@@ -1,6 +1,6 @@
 {
   "smell_name": "Publicly Accessible Microservices",
-  "brief_description": "This smell occurs when internal microservices, which should not be exposed to the Internet, are publicly reachable. These services (e.g., databases, message queues, core business services) become a direct target for attackers if they are not adequately protected at the network level.",
+  "brief_description": "This smell occurs when internal microservices, which should not be exposed to the Internet, are publicly reachable. These services (e.g., databases, message queues, core business services) become a direct target for attackers if they are not adequately protected at the network level. Code snippets containing these words: ‘ports:’ , ‘0.0.0’, ‘NodePort’ might contain this smell, check them all.",
   "microservices_context": [
     "customer-core",
     "policy-management-backend",
@@ -15,8 +15,14 @@
       "explanation": "The `customer-core` service, which might be an internal service, maps the container's port 8080 to port 8081 on the host machine. If the host has a public IP, the service becomes accessible from the Internet."
     },
     {
+      "artifact_type": "docker-compose",
+      "language": "yaml",
+      "negative_example": "services:\n  payment-service:\n    build: ./payment-service\n    ports:\n      - \"8080:8080\"",
+      "explanation": "The 'payment-service' microservice exposes port 8080 directly on the host machine, making it publicly accessible. This is a 'publicly accessible microservice' smell if not protected by authentication or a firewall."
+},
+    {
       "artifact_type": "Deployment Configuration",
-      "language": "Docker Compose (YAML)",
+      "language": "docker-compose",
       "negative_example": "services:\n  activemq:\n    image: rmohr/activemq\n    ports:\n      - \"8161:8161\"\n      - \"61616:61616\"",
       "explanation": "The ActiveMQ administration console (port 8161) and the communication protocol (61616) are publicly exposed. An attacker could try to access the console with default credentials or exploit protocol vulnerabilities."
     },
@@ -28,7 +34,7 @@
     },
     {
       "artifact_type": "Deployment Configuration",
-      "language": "Docker Compose (YAML)",
+      "language": "docker-compose",
       "negative_example": "services:\n  risk-management-nodejs:\n    image: lakesidemutual/risk-management-nodejs\n    ports:\n      - \"3000:3000\"",
       "explanation": "Even though this Node.js service might be intended for internal risk analysis, exposing it via port mapping makes it a potential entry point for attacks."
     },
@@ -46,7 +52,7 @@
     },
     {
       "artifact_type": "Deployment Configuration",
-      "language": "Docker Compose (YAML)",
+      "language": "docker-compose",
       "negative_example": "services:\n  database:\n    image: postgres\n    ports:\n      - \"5432:5432\"",
       "explanation": "Directly exposing a database port to the Internet is an extremely high security risk. Databases should only be accessible through the private microservices network."
     },
@@ -64,9 +70,15 @@
     },
     {
       "artifact_type": "Deployment Configuration",
-      "language": "Docker Compose (YAML)",
+      "language": "docker-compose",
       "negative_example": "version: '3.7'\nservices:\n  api_gateway:\n    ...\n  customer_service:\n    ...\n    # No network defined, uses default bridge network",
       "explanation": "If a custom network is not defined, Docker Compose uses a default bridge network. If a container is connected to multiple networks, including a public one, it could act as an unintentional bridge to internal services."
+    },
+    {
+      "artifact_type": "docker-compose",
+      "language": "yaml",
+      "negative_example": "services:\n  user-info:\n    image: example/user-info\n    ports:\n      - \"8200:8200\"",
+      "explanation": "The 'user-info' service exposes personal data and is publicly accessible without any authentication configured. While acceptable in development, this is a security smell in production environments."
     }
   ],
   "positive_examples": [

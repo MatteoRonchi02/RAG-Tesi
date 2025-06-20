@@ -112,6 +112,39 @@ def load_folder_path_documents(directory: str) -> list[Document]:
     print(f"Total documents uploaded by {directory}: {len(all_documents)}\n")
     return all_documents
 
+def load_single_file(file_path: str) -> list[Document]:
+    all_documents = []
+
+    if not os.path.isfile(file_path):
+        print(f"'{file_path}' non è un file valido.")
+        return []
+
+    filename = os.path.basename(file_path)
+    lower = filename.lower()
+
+    if lower in ("package-lock.json", "yarn.lock"):
+        print(f"File ignorato: {filename}")
+        return []
+
+    ext = os.path.splitext(filename)[-1].lower() if os.path.splitext(filename)[-1] else filename.lower()
+    if ext not in LOADER_MAPPING:
+        print(f"Estensione non supportata per il file: {filename}")
+        return []
+
+    loader_class, loader_kwargs = LOADER_MAPPING[ext]
+    print(f"Upload singolo file: {file_path} (type: {ext})")
+    try:
+        loader = loader_class(file_path, **loader_kwargs)
+        docs = loader.load()
+        if docs:
+            for doc in docs:
+                doc.metadata["source"] = file_path
+            all_documents.extend(docs)
+    except Exception as e:
+        print(f"Errore durante il caricamento del file '{file_path}': {e}")
+
+    return all_documents
+
 # Server per fare il chunk del codice in base al suo linguaggio
 def get_code_chunks(code_documents: list[Document]) -> list[Document]:
     print("Splitting source code into manageable chunks...")
@@ -178,7 +211,12 @@ prompt_template_str = """Instructions:
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
 6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - Create a list that contains ONLY the name of services that ONLY contain security smell, like this: "Analyzed services with security smell: \n - name of service", if there aren't make and empty list.
+   - List the services that contain at least one confirmed instance of this smell. Format:
+    "Analyzed services with security smell:
+    - service-name-1
+    - service-name-2"
+    If no services are affected, return:
+    "Analyzed services with security smell: []"
    - For each analyzed file path, create a section, divided by a line of #.
    - Under each file path, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
@@ -279,6 +317,64 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
                 all_retrieved_snippets_from_all_services.append(snippet)
                 processed_content.add(snippet.page_content)
 
+    try:
+        all_entries = os.listdir(base_folder_path)
+        top_level_files = [f for f in all_entries if os.path.isfile(os.path.join(base_folder_path, f))]
+
+        # Filtro solo i file supportati
+        supported_files = []
+        for f in top_level_files:
+            ext = os.path.splitext(f)[-1].lower()
+            if ext in LOADER_MAPPING:
+                supported_files.append(f)
+
+        if not supported_files:
+            print("Nessun file supportato trovato nella root directory.")
+            return
+
+        print(f"Trovati {len(supported_files)} file supportati nella root: {supported_files}")
+
+        for filename in tqdm(supported_files, desc="Analyzing top-level files"):
+            file_path = os.path.join(base_folder_path, filename)
+            print(f"\nAnalizzo file: {file_path}")
+
+            try:
+                docs = load_single_file(file_path)
+                if not docs:
+                    print(f"Nessun documento caricato da {filename}")
+                    continue
+
+                code_chunks = get_code_chunks(docs)
+                if not code_chunks:
+                    print(f"Nessun chunk generato da {filename}")
+                    continue
+
+                print(f"Creazione vector store per '{filename}'...")
+                file_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
+
+                search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
+                if not search_queries:
+                    print("Nessun 'negative_example' nella KB. Ricerca saltata.")
+                    continue
+
+                search_query_str = "\n".join(search_queries)
+                retrieved_snippets = file_vectorstore.similarity_search(
+                    query=search_query_str,
+                    k=k_per_service
+                )
+
+                print(f"Trovati {len(retrieved_snippets)} snippet sospetti in '{filename}'.")
+
+                for snippet in retrieved_snippets:
+                    if snippet.page_content not in processed_content:
+                        all_retrieved_snippets_from_all_services.append(snippet)
+                        processed_content.add(snippet.page_content)
+
+            except Exception as e:
+                print(f"Errore durante l'elaborazione del file '{filename}': {e}")
+
+    except Exception as e:
+        print(f"Errore nella lettura dei file in '{base_folder_path}': {e}")
 
     if not all_retrieved_snippets_from_all_services:
         print("\nNessuno snippet di codice simile agli esempi è stato trovato nei servizi. Il codice è probabilmente pulito per questo smell.")
