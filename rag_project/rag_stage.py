@@ -219,15 +219,27 @@ SMELL_INSTRUCTIONS = {
         a. **Total Absence**: First, check the provided code for any evidence of a gateway component (e.g., using Spring Cloud Gateway, Zuul, Ocelot, etc.). If there is no such code across all services, you must report that the smell is present at the system level.
         b. **Bypassable Gateway**: If gateway code *does* exist, you MUST then inspect any `docker-compose.yml` file or similar container orchestration configuration. If services *other than* the designated API Gateway expose their `ports` to the public internet, this is a critical flaw. You must report this as a form of the 'No API Gateway' smell, as the gateway's routing is not being properly enforced, allowing direct access to microservices.""",
     
-    "shared persistence" : """Your analysis for this specific smell MUST focus on identifying if multiple services access the same database schema. Pay close attention to:
-        a. **Shared Configuration**: Look for configuration files (`application.properties`, `application.yml`, `.env`, etc.) from DIFFERENT services that point to the EXACT SAME database URL, host, and schema/database name.
-        b. **Cross-Service Entity Usage**: Be suspicious if you see Data Transfer Objects (DTOs) or database entities that clearly belong to one service's domain (e.g., `OrderDetails`) being used in the repository or data access layer of a completely different service (e.g., in the `ShippingService`).
-        c. **Shared Database Migration Scripts**: Check if multiple services use or reference the same set of database migration scripts (e.g., Flyway or Liquibase files) that define tables for different domains. """,
+    "shared persistence": """Your analysis for the 'Shared Persistence' smell must be rigorous and technology-agnostic. To positively identify this smell in a service, you MUST find conclusive evidence for BOTH of the following conditions:
+        1.  **Shared Data Source Configuration:**
+            First, analyze configuration artifacts like `.yml`, `.properties`, `.json`, `.env` files, or container orchestration files (e.g., `docker-compose.yml`, Kubernetes manifests). You must find proof that multiple distinct services are configured to connect to the **exact same database instance** (e.g., same host, port, and database/schema name).
 
-    "endpoint based service interaction": """Your analysis for this specific smell MUST focus on identifying synchronous, point-to-point communication between services, which creates tight coupling. Look for the following evidence:
-        a. **HTTP Client Usage**: Identify the use of HTTP clients to call other internal services. Key examples include `RestTemplate`, `WebClient`, or `@FeignClient` annotations in Java/Spring; `HttpClient` in C#/.NET; or `requests`/`aiohttp` in Python.
-        b. **Direct Service URLs**: Look for hard-coded URLs or configuration entries (`application.yml`, etc.) that point directly to another service's address (e.g., `http://order-service:8080/api/v1/orders`).
-        c. **Absence of Messaging**: The lack of any message queue or event streaming client libraries (e.g., for RabbitMQ, Kafka, SQS, NATS) strongly suggests that communication is happening synchronously via direct HTTP calls. The presence of HTTP clients combined with the absence of messaging clients is a strong indicator of this smell.""",
+        2.  **Active Database Interaction Code:**
+            Second, within the source code of that SAME service, you must find code that **actively interacts with a database**. Look for general patterns of database usage, such as:
+            - The import and use of a database driver, client, or connector.
+            - The instantiation or use of an Object-Relational Mapper (ORM) or Object-Document Mapper (ODM) client (e.g., Hibernate, Entity Framework, Sequelize, Mongoose, etc.).
+            - The presence of classes or functions following patterns like Repository, Data Access Object (DAO), or Active Record.
+            - Code that directly executes database queries (e.g., SQL statements).
+
+        **Crucial Rule:** A service should only be reported if you find strong evidence for **BOTH** shared configuration (Condition 1) AND active database usage (Condition 2). If a service appears to have a shared configuration but you cannot find corresponding code that uses it, you must consider it a non-actionable configuration artifact and **NOT** report it as exhibiting the 'Shared Persistence' smell.
+        """,
+
+    "endpoint based service interaction": """Your analysis for this specific smell MUST focus on identifying synchronous, point-to-point communication between services that creates tight coupling. Look for:
+        a. **HTTP Client Usage**: Identify the use of HTTP clients to call other internal services (e.g., `RestTemplate`, `WebClient`, `@FeignClient`, `HttpClient`, etc.).
+        b. **Direct Service URLs**: Look for hard-coded URLs or configuration entries that point directly to another service's address.
+        c. **Absence of Messaging**: The lack of message queue or event streaming clients (e.g., for RabbitMQ, Kafka) suggests synchronous communication.
+
+        **Crucial Exception Rule:** An **API Gateway** component, whose primary function is to route external requests to internal services via HTTP, should **NOT** be reported as exhibiting this smell. The smell applies to direct, peer-to-peer communication between internal services, not to the centralized routing performed by a gateway.
+    """,
 
     "wobbly service interaction": """Your analysis for this specific smell MUST focus on identifying inefficient and "chatty" communication patterns where a service makes multiple synchronous calls to another single service to complete one task. Look for:
         a. **Calls Inside Loops**: This is the strongest indicator. Search for code where an HTTP client (like `RestTemplate`, `WebClient`, `FeignClient`) is invoked REPEATEDLY inside a `for`, `while`, or `stream().forEach()` loop. For example, getting a list of IDs and then calling another service for each single ID in the list.
@@ -245,16 +257,16 @@ prompt_template_str = """Instructions:
 6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
    - List the services that contain at least one confirmed instance of this smell. Format:
-    "Analyzed services with architectural smell:
+    "Analyzed services with Architectural smell:
     - service-name-1
     - service-name-2"
     If no services are affected, return:
-    "Analyzed services with architectural smell: []"
+    "Analyzed services with Architectural smell: []"
    - For each analyzed file path, create a section, divided by a line of #.
    - Under each file path, list the snippets that ARE AFFECTED BY THE SMELL.
    - For each affected snippet, provide:
      a. The line of code or block that contains the smell.
-     b. A clear explanation of WHY it is an architectural smell in this context.
+     b. A clear explanation of WHY it is an Architectural smell in this context.
    - If a snippet is NOT affected by the smell, you don't need to mention it.
    - If, after analyzing all provided snippets, you find NO instances of the smell, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
 
@@ -456,14 +468,14 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
 
     # Logica di valutazione
     ground_truth = {
-        "customers-service": ["endpoint based service interaction", "no api gateway"],
-        "accounts-service": ["endpoint based service interaction", "no api gateway"],
-        "transactions-service": ["endpoint based service interaction", "wobbly service interaction", "no api gateway"],
-        "customers-view-service": ["shared persistence", "endpoint based service interaction", "no api gateway"],
-        "accounts-view-service": ["shared persistence", "endpoint based service interaction", "no api gateway"],
-        "api-gateway-service": [] ,
-        #I seguenti non sono servizi ma sono stati aggiunti per completezza
-        "common-auth": ["shared persistence"]
+        "customers-service": ["no api gateway"],
+        "accounts-service": ["no api gateway"],
+        "transactions-service": ["no api gateway"],       #controllo se e` giusto WSI
+        "customers-view-service": ["shared persistence", "no api gateway"],
+        "accounts-view-service": ["shared persistence", "no api gateway"],
+        "api-gateway-service": ["shared persistence", "endpoint based service interaction"]   
+        #lo smell si trova in cummon-auth utilizzato da api gateway service
+        #il gateway dipende da indirizzi fragili (application.properties)
     }
 
 

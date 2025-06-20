@@ -7,6 +7,12 @@
   ],
   "manifestations": [
     {
+      "artifact_type": "configuration",
+      "language": "Properties/YAML",
+      "negative_example": "accounts-service.url=http://localhost:8081\ncustomers-service.url=http://localhost:8082",
+      "explanation": "This configuration file hardcodes the exact host and port for downstream services. This creates tight coupling at the configuration level. If a service's location changes, this file must be manually updated, which violates the principle of dynamic service discovery."
+    },
+    {
       "artifact_type": "service",
       "language": "Java",
       "negative_example": "public class OrderService {\n    private RestTemplate rest = new RestTemplate();\n    public void checkInventory() {\n        // Directly calling a specific instance of Inventory service\n        Inventory inventory = rest.getForObject(\n            \"http://inventory-service:8080/inventory\", Inventory.class);\n    }\n}",
