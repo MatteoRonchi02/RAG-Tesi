@@ -9,114 +9,126 @@
   ],
   "manifestations": [ 
     {
-      "artifact_type": "C# Code (Cart Service - No Redis Connection Error Handling)",
-      "language": "C#",
-      "negative_example": "// In CartService.cs, if Redis connection fails without graceful handling\npublic class CartService : ICartService\n{\n    private readonly ConnectionMultiplexer _redis;\n    public CartService()\n    {\n        _redis = ConnectionMultiplexer.Connect(\"redis-cart:6379\"); // No error handling for connection failure\n    }\n    public async Task AddItem(string userId, CartItem item)\n    {\n        // If _redis is null or disconnected, this will throw an unhandled exception\n        await _redis.GetDatabase().StringSetAsync($\"cart:{userId}\", JsonConvert.SerializeObject(item));\n    }\n}",
-      "explanation": "The `cartservice` (C#) failing to handle Redis connection errors gracefully. If Redis is unavailable, the service would throw unhandled exceptions, leading to service crashes or unresponsive behavior, making it 'wobbly' and impacting dependent services like `frontend` and `checkoutservice`."
-    },
-    {
-      "artifact_type": "Node.js Code (Currency Service - Synchronous External API Call)",
-      "language": "Node.js",
-      "negative_example": "// currencyservice/server.js\n// Synchronous call to external ECB API without timeout or retry\nconst response = await axios.get('https://api.ecb.europa.eu/rates'); // Blocking call\n// If ECB API is slow or down, this service hangs",
-      "explanation": "The `currencyservice` makes calls to the European Central Bank. If this external API call is synchronous and lacks timeouts or retry mechanisms, a slow or unresponsive external dependency would cause the `currencyservice` to hang, making it 'wobbly' and impacting the `frontend` service which depends on it]"
-    },
-    {
-      "artifact_type": "Python Code (Email Service - No Fallback for Template Loading)",
-      "language": "Python",
-      "negative_example": "# emailservice/email_server.py\n# If template loading fails, the service might crash or return internal error\nenv = Environment(loader=FileSystemLoader('templates'))\ntemplate = env.get_template('confirmation.html') # No error handling for missing template",
-      "explanation": "The `emailservice` loads an email template. If the template file is missing or corrupted and no error handling or fallback mechanism is in place, the service might fail to start or crash when trying to send an email, making it 'wobbly' and unable to fulfill its function."
-    },
-    {
-      "artifact_type": "Java Code (Ad Service - No Circuit Breaker for Dependent Service)",
+      "artifact_type": "service",
       "language": "Java",
-      "negative_example": "// AdService.java, making direct calls to productcatalogservice without circuit breaker\nList<Ad> ads = productCatalogServiceClient.getAdsForProducts(productIds); // Direct call\n// If productcatalogservice is overloaded, this will keep sending requests, worsening the problem",
-      "explanation": "The `adservice` making repeated, direct calls to an overloaded `productcatalogservice` without a circuit breaker. This would exacerbate the `productcatalogservice`'s issues and cause the `adservice` itself to become 'wobbly' due to accumulating failed requests and timeouts, leading to cascading failure."
+      "negative_example": "```java\npublic class OrderService {\n    public Order getOrder(int id) {\n        // No timeout or circuit breaker used here\n        RestTemplate rest = new RestTemplate();\n        return rest.getForObject(\"http://inventory-service/items/\" + id, Order.class);\n    }\n}\n```",
+      "explanation": "OrderService calls InventoryService synchronously with RestTemplate but no timeout or fallback. If InventoryService hangs or fails, OrderService will also hang."
     },
     {
-      "artifact_type": "Kubernetes Deployment (Missing Liveness/Readiness Probes)",
-      "language": "YAML",
-      "negative_example": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: shippingservice\n  labels:\n    app: shippingservice\nspec:\n  selector:\n    matchLabels:\n      app: shippingservice\n  template:\n    metadata:\n      labels:\n        app: shippingservice\n    spec:\n      containers:\n      - name: server\n        image: shippingservice\n        ports:\n        - containerPort: 5000\n        # No liveness or readiness probes defined",
-      "explanation": "A hypothetical `shippingservice` Kubernetes deployment lacking liveness and readiness probes. Kubernetes would continue to route traffic to an unhealthy or unready `shippingservice` pod, leading to failed requests and 'wobbly' behavior for calling services like `checkoutservice`."
+      "artifact_type": "service",
+      "language": "Java",
+      "negative_example": "```java\nMono<Customer> mono = WebClient.create()\n    .get().uri(\"http://customer-service/customer/1\")\n    .retrieve().bodyToMono(Customer.class);\nCustomer customer = mono.block();\n```",
+      "explanation": "Blocking on a WebClient call with no timeout or error handling. A slow or failing CustomerService will block this code indefinitely."
     },
     {
-      "artifact_type": "Go Code (Product Catalog Service - N+1 Query Problem)",
+      "artifact_type": "service",
+      "language": "Kotlin",
+      "negative_example": "```kotlin\nclass UserService {\n    suspend fun getUser(id: Long): User {\n        // No timeout or error handling\n        return HttpClient().get(\"http://user-service/users/$id\")\n    }\n}\n```",
+      "explanation": "The coroutine call to UserService has no timeout or fallback. If UserService is down, this call will block indefinitely."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Kotlin",
+      "negative_example": "```kotlin\nrunBlocking {\n    val httpClient = HttpClient()\n    val response = httpClient.get<HttpResponse>(\"http://other-service/api\")\n    // Using blocking code inside coroutine without timeout\n}\n```",
+          "explanation": "Blocking network call inside `runBlocking` with no timeout. This will hang the coroutine if the remote service does not respond."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Scala",
+      "negative_example": "```scala\nimplicit val timeout: Timeout = Timeout(Duration.Inf)\nval future = serviceA ? RequestData\nval result = Await.result(future, Duration.Inf)\n```",
+      "explanation": "Using `Await.result` with an infinite timeout for an actor call. This will block forever if `serviceA` does not respond."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Scala",
+      "negative_example": "```scala\nval responseFuture = Http().singleRequest(HttpRequest(uri = \"http://service/api\"))\nresponseFuture.onComplete {\n  case Success(res) => handle(res)\n  case Failure(_) => // no action or recovery\n}\n```",
+      "explanation": "An HTTP call is made without any retry or fallback logic. Failures are ignored, so callers have no contingency if the call fails."
+    },
+    {
+      "artifact_type": "service",
       "language": "Go",
-      "negative_example": "func (pcs *productCatalogService) GetProducts(ctx context.Context, req *pb.GetProductsRequest) (*pb.GetProductsResponse, error) {\n    var products*pb.Product\n    for _, id := range req.ProductIds {\n        // Inefficient: individual database query for each product ID\n        product, err := pcs.db.GetProductByID(id) \n        if err == nil { products = append(products, product) }\n    }\n    return &pb.GetProductsResponse{Products: products}, nil\n}",
-      "explanation": "The `productcatalogservice` implementing an N+1 query pattern, where it fetches each product from its data source individually within a loop. For a request involving many products, this creates excessive database calls, leading to high latency and making the `productcatalogservice` itself 'wobbly' under load."
+      "negative_example": "```go\nresp, err := http.Get(\"http://auth-service/validate\")\nif err != nil {\n    return err\n}\n```",
+      "explanation": "Using `http.Get` (default client) with no timeout. If `auth-service` is slow or unreachable, this request can hang indefinitely."
     },
     {
-      "artifact_type": "Kubernetes Service (ExternalName Type for Internal Service)",
-      "language": "YAML",
-      "negative_example": "apiVersion: v1\nkind: Service\nmetadata:\n  name: cartservice\nspec:\n  type: ExternalName\n  externalName: cartservice-legacy.internal.example.com",
-      "explanation": "Using an `ExternalName` service type to point an internal service (like `cartservice`) to an external, potentially less reliable DNS entry. While `ExternalName` has its uses, using it for internal, highly available microservices can introduce 'wobbly' behavior if the external DNS or the target it points to is unstable."
-    },
-    {
-      "artifact_type": "Python Code (Load Generator - No Backoff Strategy)",
-      "language": "Python",
-      "negative_example": "# loadgenerator/loadgen.py\n# If load generator retries immediately on failure without backoff\nwhile True:\n    try:\n        client.get(\"/\")\n    except Exception:\n        pass # Retries immediately, exacerbating service overload",
-      "explanation": "The `loadgenerator` continuously sends requests. If it lacks a proper backoff strategy (e.g., exponential backoff) when target services are failing, it can overwhelm already struggling services, contributing to 'wobbly' interactions and preventing recovery."
-    },
-    {
-      "artifact_type": "Go Code (Recommendations Service - Unbounded Queue for Requests)",
+      "artifact_type": "service",
       "language": "Go",
-      "negative_example": "// recommendationservice/server.go\n// If the service uses an unbounded goroutine pool or channel for processing requests\n// go func() { processRequest(req) }() // Spawns goroutines without limit\n// This can lead to resource exhaustion if requests come in faster than they are processed",
-      "explanation": "A hypothetical `recommendationservice` (Go) that uses an unbounded queue or spawns an unlimited number of goroutines to handle incoming requests. While seemingly efficient, this can lead to resource exhaustion (memory, CPU) under heavy load, causing the service to become 'wobbly' and unresponsive, impacting the `checkoutservice` that depends on it."
+      "negative_example": "```go\nfunc (s *UserService) GetUser(id int) (*User, error) {\n    // No timeout on gRPC call\n    ctx := context.Background()\n    return s.client.GetUser(ctx, &pb.UserRequest{Id: int32(id)})\n}\n```",
+      "explanation": "A gRPC call is made with a background context (no deadline). A slow user-service will stall indefinitely."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Kotlin",
+      "negative_example": "```kotlin\nfun fetchData(id: String): String {\n    // Blocking call with no exception or timeout handling\n    return URL(\"http://data-service/data/$id\").readText()\n}\n```",
+      "explanation": "Simple blocking I/O call to another service. No timeout or circuit breaker; the call will block if the service is unresponsive."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Java",
+      "negative_example": "```java\ntry {\n    String data = new RestTemplate().getForObject(\"http://data-service/data\", String.class);\n    return data;\n} catch (Exception e) {\n    return null; // Swallowing the failure silently\n}\n```",
+      "explanation": "The service swallows exceptions and returns null as fallback. No retry or alternate path. This can lead to hidden failures and null propagation."
     }
   ],
   "positive": [
     {
-      "artifact_type": "Kubernetes Deployment (Currency Service Readiness Probe)",
-      "language": "YAML",
-      "positive_example": "      readinessProbe:\n        grpc:\n          port: 7000\n        initialDelaySeconds: 15",
-      "explanation": "Similar to the liveness probe, the `currencyservice` defines a gRPC readiness probe. This tells Kubernetes when the service is ready to accept traffic. New or restarting pods won't receive requests until they pass this check, preventing 'wobbly' interactions with unready services."
-    },
-    {
-      "artifact_type": "Go Code (Checkout Service - gRPC Call with Context Timeout)",
-      "language": "Go",
-      "positive_example": "ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)\ndefer cancel()\n\n// Call to cartservice with a 5-second timeout\n_, err := cs.cartServiceClient.AddItem(ctx, cartReq)",
-      "explanation": "The `checkoutservice` making a gRPC call to `cartservice` with a `context.WithTimeout`. This ensures that the call will not block indefinitely if `cartservice` is slow or unresponsive, preventing the `checkoutservice` from becoming 'wobbly' itself and potentially cascading failures."
-    },
-    {
-      "artifact_type": "Go Code (Frontend Service - Error Handling for Product Catalog)",
-      "language": "Go",
-      "positive_example": "products, err := fe.productCatalogServiceClient.ListProducts(ctx, &pb.Empty{})\nif err!= nil {\n    log.Errorf(\"could not retrieve products: %v\", err)\n    // Implement a fallback: serve empty catalog or cached data\n    products = &pb.ListProductsResponse{Products:*pb.Product{}}\n}",
-      "explanation": "The `frontend` service (Go) includes error handling for calls to `productcatalogservice`. Instead of crashing or returning a generic error, it logs the error and provides a graceful fallback (e.g., an empty product list). This prevents a single service failure from rendering the entire application unusable."
-    },
-    {
-      "artifact_type": "C# Code (Cart Service - Redis Connection Resilience)",
-      "language": "C#",
-      "positive_example": "// In CartService.cs, using a robust Redis client library with built-in reconnect logic\nConnectionMultiplexer redis = ConnectionMultiplexer.Connect(\"redis-cart:6379\");\nIDatabase db = redis.GetDatabase();\n// The client library handles transient connection issues and retries automatically.",
-      "explanation": "The `cartservice` (C#) uses Redis as its data store. By using a production-grade Redis client library (like StackExchange.Redis), it implicitly gains resilience features such as connection pooling, automatic reconnection, and command retries, making its interaction with Redis less 'wobbly'."
-    },
-    {
-      "artifact_type": "Node.js Code (Payments Service - Asynchronous Email Notification)",
-      "language": "Node.js",
-      "positive_example": "// paymentservice/server.js\n// Instead of blocking for email, send asynchronously or via message queue\n// Example: Publish event to Kafka/PubSub for emailservice to consume\n// pubsubClient.publish('order-confirmation-topic', orderDetails);\n// Response to client immediately.",
-      "explanation": "The `paymentservice` orchestrates payment and email notification. If email notification were a synchronous call, it could make the payment process 'wobbly'. By making it asynchronous (e.g., via a message queue like Kafka/PubSub), the `paymentservice` can complete its core task quickly, improving overall system responsiveness and isolating the payment flow from email service failures."
-    },
-    {
-      "artifact_type": "Python Code (Recommendation Service - Data Aggregation Optimization)",
-      "language": "Python",
-      "positive_example": "# recommendationservice/recommendation_server.py\n# Fetching product details in a single batch call if API supports it\n# product_ids = [item.product_id for item in cart_items]\n# products = productCatalogServiceClient.GetProductsByIds(product_ids)",
-      "explanation": "The `recommendationservice` recommends products based on the cart. Instead of making individual calls for each product in the cart (N+1 problem), it should ideally make a single batch call to the `productcatalogservice`. This optimizes data aggregation, reducing network chatter and improving performance, preventing 'wobbly' interactions due to chatty APIs."
-    },
-    {
-      "artifact_type": "Kubernetes Manifest (Resource Limits and Requests)",
-      "language": "YAML",
-      "positive_example": "      resources:\n        requests:\n          cpu: 200m\n          memory: 64Mi\n        limits:\n          cpu: 300m\n          memory: 128Mi",
-      "explanation": "Defining resource `requests` and `limits` for containers helps prevent services from consuming excessive resources and impacting other services on the same node. This contributes to overall system stability and prevents 'wobbly' behavior caused by resource contention."
-    },
-    {
-      "artifact_type": "Java Code (Ad Service - Circuit Breaker Pattern)",
+      "artifact_type": "circuit_breaker",
       "language": "Java",
-      "positive_example": "// AdService.java, if integrated with a circuit breaker library like Resilience4j\n// @CircuitBreaker(name = \"productCatalog\", fallbackMethod = \"fallbackAds\")\n// public List<Ad> getAdsFromProductCatalog(List<String> productIds) {... }\n// private List<Ad> fallbackAds(Throwable t) { return defaultAds; }",
-      "explanation": "A hypothetical implementation in `adservice` using a circuit breaker pattern (e.g., via Resilience4j). If calls to a dependent service (like `productcatalogservice`) repeatedly fail or exceed thresholds, the circuit opens, preventing further calls and allowing the dependency to recover, thus isolating failures and preventing cascading 'wobbles'."
+      "positive_example": "```java\nCircuitBreaker cb = CircuitBreaker.ofDefaults(\"inventoryCB\");\nSupplier<Item> decorated = CircuitBreaker.decorateSupplier(cb, () -> inventoryService.getItem(id));\nItem item = Try.ofSupplier(decorated)\n               .recover(throwable -> getDefaultItem())\n               .get();\n```",
+      "explanation": "InventoryService calls are wrapped in a circuit breaker (Resilience4j). On failure, it falls back to `getDefaultItem()` instead of hanging."
     },
     {
-      "artifact_type": "Go Code (Shipping Service - Retry Logic)",
+      "artifact_type": "timeout",
+      "language": "Java",
+      "positive_example": "```java\nRestTemplate rest = new RestTemplate();\n((SimpleClientHttpRequestFactory) rest.getRequestFactory()).setConnectTimeout(1000);\n((SimpleClientHttpRequestFactory) rest.getRequestFactory()).setReadTimeout(1000);\nString response = rest.getForObject(\"http://inventory-service/items/\" + id, String.class);\n```",
+      "explanation": "Configured a short connect and read timeout for HTTP calls. The client will fail fast if InventoryService is slow or down."
+    },
+    {
+      "artifact_type": "timeout",
+      "language": "Kotlin",
+      "positive_example": "```kotlin\nrunBlocking {\n    withTimeout(2000) {\n        val response = httpClient.get<String>(\"http://service/api\")\n        // use response\n    }\n}\n```",
+      "explanation": "Uses `withTimeout` to enforce a 2-second timeout on the service call. If the call takes longer, it is aborted with an exception."
+    },
+    {
+      "artifact_type": "circuit_breaker",
+      "language": "Kotlin",
+      "positive_example": "```kotlin\nval circuitBreaker = CircuitBreaker.ofDefaults(\"serviceCB\")\nval supplier = CircuitBreaker.decorateSupplier(circuitBreaker) { callService() }\nval result = Try.ofSupplier(supplier)\n    .recover { fallbackData() }\n    .get()\n```",
+      "explanation": "Wraps service call in a circuit breaker (via Resilience4j). On repeated failures it opens the circuit and uses a fallback value."
+    },
+    {
+      "artifact_type": "timeout",
+      "language": "Scala",
+      "positive_example": "```scala\nimplicit val timeout: Timeout = Timeout(5.seconds)\nval future = serviceActor ? RequestData\nval result = Await.result(future, 5.seconds)\n```",
+      "explanation": "Sets a 5-second timeout for the actor ask call. The call will fail after 5 seconds if no response, avoiding infinite blocking."
+    },
+    {
+      "artifact_type": "circuit_breaker",
+      "language": "Scala",
+      "positive_example": "```scala\nval breaker = new CircuitBreaker(system.scheduler, maxFailures = 5, callTimeout = 10.seconds, resetTimeout = 1.minute)\nbreaker.withCircuitBreaker(Future { Service.callExternalApi() })\n```",
+      "explanation": "Akka CircuitBreaker is used. After 5 failed calls or 10s timeouts, the circuit opens and further calls fail fast, preventing cascade."
+    },
+    {
+      "artifact_type": "timeout",
       "language": "Go",
-      "positive_example": "import \"github.com/sethvargo/go-retry\"\n\nfunc (ss *shippingService) getShippingQuoteWithRetry(ctx context.Context, req *pb.GetQuoteRequest) (*pb.GetQuoteResponse, error) {\n    var resp *pb.GetQuoteResponse\n    err := retry.Do(ctx, retry.WithMaxRetries(3, retry.NewConstant(time.Millisecond*100)), func(ctx context.Context) error {\n        var innerErr error\n        resp, innerErr = ss.shippingServiceClient.GetQuote(ctx, req)\n        return innerErr\n    })\n    return resp, err\n}",
-      "explanation": "The `shippingservice` implementing retry logic for calls to external or internal dependencies. This helps overcome transient network issues or temporary service unavailability without immediately failing the request, making the interaction more robust and less 'wobbly'"
+      "positive_example": "```go\nctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)\ndefer cancel()\nresp, err := client.DoRequest(ctx, req)\n```",
+      "explanation": "Creates a context with a 2-second timeout for the request. If the remote service does not respond, the context cancels the request."
+    },
+    {
+      "artifact_type": "circuit_breaker",
+      "language": "Go",
+      "positive_example": "```go\ncbConfig := hystrix.CommandConfig{Timeout: 1000}\nhystrix.ConfigureCommand(\"svcCall\", cbConfig)\nhystrix.Go(\"svcCall\", func() error {\n    _, err := client.DoRequest()\n    return err\n}, func(err error) error {\n    // fallback logic\n    return nil\n})\n```",
+      "explanation": "Uses a Hystrix-like circuit breaker in Go. On timeout or failures, it falls back instead of blocking."
+    },
+    {
+      "artifact_type": "timeout",
+      "language": "Java",
+      "positive_example": "```java\nCompletableFuture.supplyAsync(() -> restTemplate.getForObject(url, String.class))\n    .orTimeout(500, TimeUnit.MILLISECONDS)\n    .exceptionally(ex -> \"fallback\");\n```",
+      "explanation": "Uses `CompletableFuture.orTimeout` to timeout the HTTP call after 500ms and return a fallback value."
+  },
+    {
+      "artifact_type": "fallback",
+      "language": "Scala",
+      "positive_example": "```scala\nval future = (customerService ? RequestData).mapTo[Customer]\nval withRecovery = future.recover { case _ => defaultCustomer }\n```",
+      "explanation": "Uses Future.recover in Scala to provide a default value if the asynchronous call fails, preventing propagation of the failure."
     }
   ],
    "meta_data": {

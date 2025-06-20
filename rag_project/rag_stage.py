@@ -3,8 +3,6 @@ import warnings
 import json
 from langchain.docstore.document import Document
 from langchain_community.document_loaders import (
-    UnstructuredWordDocumentLoader,
-    UnstructuredPDFLoader,
     TextLoader
 )
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -17,7 +15,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter, Language
 from tqdm import tqdm
 
 #Cambiare il tipo di smell da analizzare
-TYPE_SMELL = os.getenv("TYPE_SMELL", "Security")   
+TYPE_SMELL = os.getenv("TYPE_SMELL", "Archtectural")   
 
 load_dotenv()
 aiplatform.init(
@@ -54,7 +52,8 @@ LOADER_MAPPING = {
     "dockerfile": (TextLoader, {"encoding": "utf-8"}),
     ".sh": (TextLoader, {"encoding": "utf-8"}),
     ".groovy": (TextLoader, {"encoding": "utf-8"}),
-    ".json": (TextLoader, {"encoding": "utf-8"})
+    ".json": (TextLoader, {"encoding": "utf-8"}),
+    ".properties": (TextLoader, {"encoding": "utf-8"})
 }
 
 # Carica i dati della KB dal formato json
@@ -159,21 +158,25 @@ print("=========================================================================
 
 # Nuovo prompt, si può migliorare
 prompt_template_str = """Instructions:
-1. You are an expert {TYPE_SMELL} auditor. Your task is to analyze specific code snippets for a given {TYPE_SMELL} smell.
-2. The 'Smell Definition' provides the official description and remediation strategies for the {TYPE_SMELL} vulnerability.
-3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
-4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
-5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
-6. Structure your answer as follows:
+1. You are an expert {TYPE_SMELL} auditor. Your task is to analyze code from a multi-service project for a given '{TYPE_SMELL}' smell.
+2. The analysis MUST consider the interaction BETWEEN different services. The code snippets provided come from various services within the same project.
+3. The 'Smell Definition' provides the official description of the {TYPE_SMELL} smell. Pay close attention to how it describes interactions.
+4. The 'Positive Examples' are code snippets that represent good, decoupled practices.
+5. The 'Suspicious Code Snippets' are chunks of code retrieved from the user's project. Each snippet's source file path indicates which service it belongs to.
+6. Your primary goal is to analyze EACH suspicious snippet to determine if it contributes to the smell, especially by creating illegal dependencies between services. For 'Shared Persistence', this means looking for multiple services accessing the same database.
+7. Pay special attention to:
+   - Configuration files (e.g., application.properties, .yml, Dockerfiles) from DIFFERENT services pointing to the SAME database URL or schema.
+   - Shared data-access libraries or common JPA entities used across multiple services.
+   - Direct database queries from one service to a table that should belong to another service.
+8. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
    - Create a list that contains only services that contain security smell, like this: "Analyzed services with security smell: \n - name of service".
    - For each analyzed file path, create a section, divided by a line of #.
    - Under each file path, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
      a. The line of code or block that contains the smell.
-     b. A clear explanation of WHY it is a vulnerability in this context.
-   - If a snippet is NOT vulnerable, you don't need to mention it.
-   - If, after analyzing all provided snippets, you find NO vulnerabilities, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
+     b. A clear explanation of WHY it is a vulnerability, specifically explaining HOW it connects different services inappropriately.
+   - If NO vulnerabilities are found after analyzing all snippets, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code."
 
 --- Smell Definition ---
 {smell_definition}
@@ -311,7 +314,7 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         return # Esce dalla funzione in caso di errore
 
     # Logica di valutazione
-    ground_truth = {
+    #ground_truth = {
         "customer-core": ["publicly accessible microservice"],
         "customer-management-backend": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic", "hardcoded secrets"],
         "customer-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
@@ -321,7 +324,16 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         "policy-management-frontend": ["publicly accessible microservice", "unauthenticated traffic"],
         "spring-boot-admin": ["publicly accessible microservice", "insufficient access control", "unauthenticated traffic"],
         "risk-management-server": ["publicly accessible microservice", "hardcoded secrets"]
+    #}
+
+    ground_truth = {
+        "customer-service": ["endpoint based service interaction"],
+        "account-service": ["endpoint based service interaction"],
+        "transaction-service": ["endpoint based service interaction", "wobbly service interaction"],
+        "customer-view-service": ["shared persistence","endpoint based service interaction"],
+        "account-view-service": ["shared persistence","endpoint based service interaction"]
     }
+
 
     smell_name = user_query.lower()
     predicted_services = extract_services_from_llm_output(answer)

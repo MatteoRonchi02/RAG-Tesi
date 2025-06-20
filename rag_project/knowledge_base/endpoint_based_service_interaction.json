@@ -7,118 +7,131 @@
   ],
   "manifestations": [
     {
-      "artifact_type": "Node.js Code (Payments Service - Direct Pod Name Resolution)",
-      "language": "Node.js",
-      "negative_example": "// paymentservice/server.js\n//... attempting to resolve a specific pod name directly\nconst emailServiceUrl = 'http://emailservice-pod-abcde.default.svc.cluster.local:8080';\naxios.post(emailServiceUrl, emailData);",
-      "explanation": "A hypothetical Node.js `paymentservice` directly constructing a URL using an ephemeral pod name (`emailservice-pod-abcde`). While technically resolvable within Kubernetes, relying on specific pod names bypasses load balancing and is fragile if the pod is recreated or scaled."
-    },
-    {
-      "artifact_type": "Python Code (Recommendation Service - DNS Lookup in Code)",
-      "language": "Python",
-      "negative_example": "import socket\n\ndef get_product_catalog_ip():\n    # Manual DNS lookup instead of relying on Kubernetes DNS resolution\n    ip_addr = socket.gethostbyname('productcatalogservice') # Still resolves, but less robust if not managed by platform\n    return f'http://{ip_addr}:3550'",
-      "explanation": "A hypothetical Python `recommendationservice` explicitly performing a DNS lookup for `productcatalogservice` within its code to get an IP. While `socket.gethostbyname` would resolve the Kubernetes service DNS, this pattern is less robust than relying on the platform's native service discovery mechanisms (e.g., environment variables for service addresses) as it adds unnecessary complexity and potential for misconfiguration."
-    },
-    {
-      "artifact_type": "Kubernetes ConfigMap (Hardcoded External Dependency)",
-      "language": "YAML",
-      "negative_example": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: external-db-config\ndata:\n  DATABASE_URL: \"jdbc:mysql://192.168.1.100:3306/mydb\"",
-      "explanation": "A ConfigMap containing a hardcoded IP address for an external database. While not an internal microservice, this illustrates the smell of relying on a fixed, potentially unstable network endpoint, making the application brittle to infrastructure changes."
-    },
-    {
-      "artifact_type": "C# Code (Cart Service - Configuration File with IP)",
-      "language": "C#",
-      "negative_example": "// appsettings.json or similar config file\n{\n  \"RedisSettings\": {\n    \"Address\": \"172.17.0.2:6379\" // Hardcoded Redis IP\n  }\n}",
-      "explanation": "If the `cartservice` (C#) configured its Redis dependency  with a hardcoded IP address in a configuration file. This would make the `cartservice` fragile, as the Redis instance's IP could change, leading to connectivity issues and requiring manual updates and redeployments."
-    },
-    {
-      "artifact_type": "Java Code (Ad Service - Direct Connection String)",
+      "artifact_type": "service",
       "language": "Java",
-      "negative_example": "// AdService.java\n//... in a method making a call to productcatalogservice\n// Channel channel = ManagedChannelBuilder.forAddress(\"10.0.0.6\", 3550)\n//   .usePlaintext()\n//   .build();",
-      "explanation": "A hypothetical `adservice` directly connecting to `productcatalogservice` using a hardcoded internal IP address (`10.0.0.6`). This creates a direct dependency on an unstable network location, which is prone to breaking when the `productcatalogservice` pod restarts or moves."
+      "negative_example": "public class OrderService {\n    private RestTemplate rest = new RestTemplate();\n    public void checkInventory() {\n        // Directly calling a specific instance of Inventory service\n        Inventory inventory = rest.getForObject(\n            \"http://inventory-service:8080/inventory\", Inventory.class);\n    }\n}",
+      "explanation": "OrderService calls InventoryService by a fixed URL. This binds the service call to a specific endpoint; if InventoryService scales or moves, the caller won't automatically use the new instances."
     },
     {
-      "artifact_type": "Docker Compose File (Legacy Direct Linking)",
-      "language": "YAML",
-      "negative_example": "services:\n  frontend:\n    build:./frontend\n    links:\n      - productcatalogservice:productcatalogservice_legacy_ip\n  productcatalogservice:\n    build:./productcatalogservice",
-      "explanation": "Using Docker Compose `links` (a legacy feature) to connect services, which relies on hostname resolution that might not translate well to dynamic Kubernetes environments or could lead to hardcoded aliases. While Docker Compose provides DNS, `links` can encourage a mindset of direct, static connections rather than dynamic service discovery."
+      "artifact_type": "service",
+      "language": "Kotlin",
+      "negative_example": "class PaymentService(private val client: HttpClient) {\n    suspend fun validateOrder(orderId: String) {\n        // Direct HTTP call with hardcoded address\n        client.get<OrderStatus>(\"http://order-service:8080/orders/$orderId/status\")\n    }\n}",
+      "explanation": "This Kotlin code uses a hard-coded address to call OrderService. Tying to an explicit host/port bypasses any discovery or load balancing, so the call only reaches that particular instance."
     },
     {
-      "artifact_type": "Go Code (Checkout Service - Manual Endpoint List)",
+      "artifact_type": "service",
+      "language": "Scala",
+      "negative_example": "class ReportService(http: HttpExt) {\n  def getUserInfo(userId: String): Future[String] = {\n    // Hardcoded service endpoint\n    http.singleRequest(HttpRequest(uri = s\"http://user-service:8080/users/$userId\"))\n      .flatMap(_.entity.toStrict(2.seconds))\n      .map(_.data.utf8String)\n  }\n}",
+      "explanation": "ReportService directly requests the UserService at a fixed URI. This prevents transparent load balancing or failover: only that specific instance will be called for user info."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Scala",
+      "negative_example": "class BillingService(client: akka.http.scaladsl.HttpExt) {\n  def charge(userId: String): Future[HttpResponse] = {\n    // Using static host and port\n    client.singleRequest(HttpRequest(uri = \"http://billing-service:8080/charge\"))\n  }\n}",
+      "explanation": "BillingService sends a request to a fixed billing-service endpoint. This static endpoint coupling makes it impossible to utilize new replicas or redirect traffic if this instance goes down."
+    },
+    {
+      "artifact_type": "service",
       "language": "Go",
-      "negative_example": "var cartServiceEndpoints =string{\n    \"cartservice-pod-a:7070\",\n    \"cartservice-pod-b:7070\",\n} // Manual list of specific pod endpoints",
-      "explanation": "A hypothetical `checkoutservice` maintaining a manual list of `cartservice` pod endpoints. This approach is highly brittle, as it requires manual updates whenever pods are added, removed, or change, and it bypasses Kubernetes' native load balancing and service discovery."
+      "negative_example": "func VerifyShipping() {\n    // Direct REST call to a specific service instance\n    resp, err := http.Get(\"http://shipping-service:8080/shipments/verify\")\n    defer resp.Body.Close()\n}",
+      "explanation": "The Go code issues an HTTP GET to a fixed shipping-service URL. Without service discovery, this request will always hit that single endpoint, ignoring any other instances."
     },
     {
-      "artifact_type": "Kubernetes Deployment (Missing Service Account)",
+      "artifact_type": "service",
+      "language": "Go",
+      "negative_example": "func FetchProfile() {\n    // Hardcoded endpoint for the profile service\n    resp, err := http.Get(\"http://user-service:8080/profile\")\n    defer resp.Body.Close()\n}",
+      "explanation": "This Go client in a microservice calls the user-service at a hardcoded address. If the service replicates or moves to a different port, the call will fail or not reach the new instances."
+    },
+    {
+      "artifact_type": "configuration",
       "language": "YAML",
-      "negative_example": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: cartservice\n  labels:\n    app: cartservice\nspec:\n  selector:\n    matchLabels:\n      app: cartservice\n  template:\n    metadata:\n      labels:\n        app: cartservice\n    spec:\n      # serviceAccountName: cartservice # Missing service account",
-      "explanation": "While not directly about IP addressing, omitting the `serviceAccountName`  for a deployment can indicate a lack of proper integration with Kubernetes' identity and discovery mechanisms. This can implicitly lead to services relying on less robust methods for finding dependencies if the platform's native features aren't fully leveraged."
+      "negative_example": "services:\n  inventory-service: http://inventory-service:8080\n  order-service: http://order-service:8080",
+      "explanation": "This YAML configuration uses static URLs for services. Hardcoding endpoints in config makes it difficult to scale or redeploy services without updating every dependent configuration."
     },
     {
-      "artifact_type": "Configuration File (Environment Variable with IP)",
-      "language": "Text/Env",
-      "negative_example": "SHIPPING_SERVICE_ADDR=10.0.0.7:5000",
-      "explanation": "Setting an environment variable with a hardcoded IP address for the `shippingservice`. While environment variables are good for externalizing configuration, using a fixed IP makes the configuration fragile and prone to breakage if the `shippingservice` pod's IP changes."
+      "artifact_type": "service",
+      "language": "Java",
+      "negative_example": "public class EmailService {\n    private RestTemplate rest = new RestTemplate();\n    public void notify(Order order) {\n        // Invokes user service by fixed IP and port\n        User user = rest.getForObject(\"http://192.168.1.100:8080/users/\" + order.getUserId(), User.class);\n    }\n}",
+      "explanation": "The EmailService calls the User service via a hard-coded IP address and port. This is rigid and fails to adapt if the service instance changes, creating a fragile coupling."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Kotlin",
+      "negative_example": "class SyncService {\n    fun syncData(dataId: String) {\n        // Direct gRPC call to a single endpoint\n        val channel = ManagedChannelBuilder.forAddress(\"data-service\", 50051).usePlaintext().build()\n        val stub = DataServiceGrpc.newBlockingStub(channel)\n        stub.sync(DataRequest.newBuilder().setId(dataId).build())\n    }\n}",
+      "explanation": "Here, SyncService sets up a gRPC channel to a specific data-service address. Without service lookup, it will always connect to that one target, neglecting other available replicas."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Java",
+      "negative_example": "public class AnalyticsService {\n    public void report() {\n        // SOAP call to fixed endpoint\n        SOAPConnection conn = SOAPConnectionFactory.newInstance().createConnection();\n        String endpoint = \"http://reporting-service:8080/soap\";\n        SOAPMessage response = conn.call(message, endpoint);\n    }\n}",
+      "explanation": "The AnalyticsService uses a SOAP connection to a static URL for the reporting-service. As with REST calls, this locks the communication to a specific endpoint instance, preventing seamless scaling."
     }
   ],
   "positive": [
     {
-      "artifact_type": "Shell Command (Client for Cart Service REST)",
-      "language": "Bash",
-      "positive_example": "curl -X 'POST' 'http://cartservice:60000/cart/user_id/abcde' \\ -H 'accept: application/json' \\ -H 'content-type: application/json' \\ -d '{ \"product_id\": \"OLJCESPC7Z\", \"quantity\": 1 }'",
-      "explanation": "Similar to the gRPC example, this `curl` command uses `cartservice:60000` for REST communication. The use of the service name `cartservice` instead of an IP address ensures that the client can reliably connect to the `cartservice` regardless of which pod is serving the request or its underlying IP."
-    },
-    {
-      "artifact_type": "Kubernetes Deployment (Cart Service Environment Variable)",
-      "language": "YAML",
-      "positive_example": "      env:\n      - name: REDIS_ADDR\n        value: \"redis-cart:6379\"",
-      "explanation": "From the `cartservice` Kubernetes manifest, the `REDIS_ADDR` environment variable is set to `redis-cart:6379`. `redis-cart` is the Kubernetes Service name for the Redis instance. This is a strong positive example of using logical service names for internal dependencies, ensuring the `cartservice` can always find its Redis backend."
-    },
-    {
-      "artifact_type": "Go Code (Checkout Service - Service Address Configuration)",
-      "language": "Go",
-      "positive_example": "var (\n\tcartServiceAddr         = os.Getenv(\"CART_SERVICE_ADDR\")\n\tproductCatalogServiceAddr = os.Getenv(\"PRODUCT_CATALOG_SERVICE_ADDR\")\n\tshippingServiceAddr     = os.Getenv(\"SHIPPING_SERVICE_ADDR\")\n\tcurrencyServiceAddr     = os.Getenv(\"CURRENCY_SERVICE_ADDR\")\n\tpaymentServiceAddr      = os.Getenv(\"PAYMENT_SERVICE_ADDR\")\n\temailServiceAddr        = os.Getenv(\"EMAIL_SERVICE_ADDR\")\n\trecommendationServiceAddr = os.Getenv(\"RECOMMENDATION_SERVICE_ADDR\")\n)",
-      "explanation": "The `checkoutservice` retrieves its dependent service addresses from environment variables. These environment variables are populated by Kubernetes with service DNS names (e.g., `cartservice:7070`), ensuring that the service does not hardcode endpoints and can adapt to changes in the environment."
-    },
-    {
-      "artifact_type": "Kubernetes Service Definition (Product Catalog Service)",
-      "language": "YAML",
-      "positive_example": "apiVersion: v1\nkind: Service\nmetadata:\n  name: productcatalogservice\n  labels:\n    app: productcatalogservice\nspec:\n  type: ClusterIP\n  selector:\n    app: productcatalogservice\n  ports:\n  - name: grpc\n    port: 3550\n    targetPort: 3550",
-      "explanation": "This Kubernetes `Service` definition for `productcatalogservice` creates a stable internal DNS name (`productcatalogservice`) for the service. Other services can reliably call `productcatalogservice:3550` without needing to know the ephemeral IP addresses of its pods."
-    },
-    {
-      "artifact_type": "Node.js Code (Currency Service - Environment Variable Usage)",
-      "language": "Node.js",
-      "positive_example": "// currencyservice/server.js\nconst PORT = process.env.PORT || 7000;\n//... gRPC server listens on PORT\n// The service itself doesn't hardcode its own port for internal discovery, \n// relying on Kubernetes service definition.",
-      "explanation": "The `currencyservice` uses an environment variable `PORT` to define its listening port. While basic, this indicates that the service's own network configuration is externalized, allowing Kubernetes to define the stable service endpoint (e.g., `currencyservice:7000`) that other services can discover and use."
-    },
-    {
-      "artifact_type": "Python Code (Email Service - Service Discovery via DNS)",
-      "language": "Python",
-      "positive_example": "# emailservice/email_server.py\n#... assuming similar pattern for service address resolution as Go services\n# For example, if it calls checkoutservice:\n# checkout_service_address = os.getenv('CHECKOUT_SERVICE_ADDR', 'checkoutservice:5050')\n# channel = grpc.insecure_channel(checkout_service_address)",
-      "explanation": "If the `emailservice` needs to communicate with other services (e.g., `checkoutservice`), it would typically resolve their addresses via environment variables set by Kubernetes, which contain the stable DNS names. This prevents hardcoding and ensures adaptability within the cluster."
-    },
-    {
-      "artifact_type": "Java Code (Ad Service - gRPC Channel Setup)",
+      "artifact_type": "configuration",
       "language": "Java",
-      "positive_example": "// adservice/src/main/java/hipstershop/AdService.java\n// In a client calling adservice (e.g., frontend or recommendationservice):\n// ManagedChannel channel = ManagedChannelBuilder.forAddress(\"adservice\", 9550)\n//   .usePlaintext()\n//   .build();",
-      "explanation": "When another service (e.g., `frontend` or `recommendationservice`) makes a gRPC call to `adservice`, it would use `ManagedChannelBuilder.forAddress(\"adservice\", 9550)`. This explicitly uses the Kubernetes service DNS name `adservice` and its gRPC port, reinforcing the pattern of logical service addressing."
+      "positive_example": "@Bean\n@LoadBalanced\npublic RestTemplate restTemplate() {\n    return new RestTemplate();\n}",
+      "explanation": "This bean creates a RestTemplate that is load-balanced (e.g., via Ribbon/Eureka). When this restTemplate is used, service URLs with logical names (like http://order-service) will be automatically resolved to available instances, avoiding fixed endpoints."
     },
     {
-      "artifact_type": "Kubernetes Manifest (Service Account for Cart Service)",
-      "language": "YAML",
-      "positive_example": "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: cartservice\n  labels:\n    app: cartservice",
-      "explanation": "The existence of a dedicated `ServiceAccount` for `cartservice` is part of Kubernetes' internal identity and access management. While not directly about endpoint resolution, it supports the overall framework where services are managed and discovered by the platform using stable identities, rather than relying on ephemeral network details."
+      "artifact_type": "client",
+      "language": "Java",
+      "positive_example": "public class OrderService {\n    @Autowired\n    private RestTemplate restTemplate;\n    public void cancelOrder(String orderId) {\n        // Using a logical service name, not hardcoded IP\n        restTemplate.postForObject(\n            \"http://order-service:8080/orders/\" + orderId + \"/cancel\",\n            null, Void.class);\n    }\n}",
+      "explanation": "Using the logical name 'order-service' with a load-balanced RestTemplate (assuming service registry) means the request will be routed to any healthy instance of OrderService, not a specific endpoint. This keeps the caller decoupled from instance locations."
     },
     {
-      "artifact_type": "Go Code (Shipping Service - Internal Communication)",
+      "artifact_type": "client",
+      "language": "Kotlin",
+      "positive_example": "class NotificationService(private val client: HttpClient) {\n    suspend fun sendNotification(userId: String) {\n        // Use service discovery for user service\n        val userProfile: UserProfile = client.get(\"http://user-service/users/$userId\")\n        // ...\n    }\n}",
+      "explanation": "Here, the service calls 'user-service' by name. In an environment with a service registry or DNS-based discovery, 'user-service' will be resolved to the actual service instances, avoiding hard-coded addresses and ensuring scalability."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Scala",
+      "positive_example": "class LogService(http: HttpExt) {\n  def sendLog(event: LogEvent): Unit = {\n    // Send event instead of direct call\n    val json = event.toJson.compactPrint\n    // imagine sending to a message queue or broker\n  }\n}",
+      "explanation": "In this Scala example, LogService would publish an event to a message broker (code omitted). Using an event-driven or message-based approach avoids direct service calls, eliminating endpoint coupling entirely."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Java",
+      "positive_example": "@Component\npublic class MetricsCollector {\n    @Autowired\n    private DiscoveryClient discoveryClient;\n    public void collect() {\n        // Query service registry for instances\n        List<ServiceInstance> instances = discoveryClient.getInstances(\"payment-service\");\n        ServiceInstance instance = instances.get(0);\n        String url = instance.getUri().toString() + \"/metrics\";\n        RestTemplate rest = new RestTemplate();\n        String data = rest.getForObject(url, String.class);\n    }\n}",
+      "explanation": "Instead of calling a hard-coded endpoint, this code queries a discovery service (e.g., Eureka) to find service instances. It then constructs the URL dynamically from a chosen instance. This approach accommodates scaling and dynamic endpoints."
+    },
+    {
+      "artifact_type": "service",
       "language": "Go",
-      "positive_example": "// shippingservice/server.go\n//... when calling a dependent service, e.g., location service:\n// locationServiceAddress := os.Getenv(\"LOCATION_SERVICE_ADDR\", \"locationservice:8080\")\n// conn, err := grpc.Dial(locationServiceAddress, grpc.WithInsecure())",
-      "explanation": "The `shippingservice` would follow the pattern of retrieving dependent service addresses from environment variables, which are populated by Kubernetes. This ensures that its internal communications are based on stable, logical service names, adapting to the dynamic nature of a containerized environment."
+      "positive_example": "func FetchPayment() {\n    // Using built-in DNS resolution for service name\n    resp, _ := http.Get(\"http://payment-service:8080/payments\")\n    defer resp.Body.Close()\n}",
+      "explanation": "Here the Go service uses the service name 'payment-service' as the host. In a containerized setup (like Docker Swarm or Kubernetes), this hostname can automatically resolve to the correct service endpoint. No direct hard-coded address is used."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Kotlin",
+      "positive_example": "class OrderHandler(private val webClient: WebClient) {\n    fun process(order: Order) {\n        // Reactive client with logical service URI\n        webClient.get()\n            .uri(\"http://inventory-service/inventory/check?productId=${order.productId}\")\n            .retrieve()\n            .bodyToMono(Void::class.java)\n            .block()\n    }\n}",
+      "explanation": "The code uses Spring WebClient and refers to 'inventory-service' by name. With service discovery, WebClient will route to the appropriate instance(s). The URI doesn't include explicit port, relying on cluster DNS or service registration."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Java",
+      "positive_example": "public class UserClient {\n    private final UserService userService;\n    public UserClient(UserService userService) {\n        this.userService = userService;\n    }\n    public void check() {\n        // Circuit breaker wraps the call (e.g., using Hystrix)\n        String status = userService.getStatus()\n            .fallback(\"SERVICE_UNAVAILABLE\");\n    }\n}",
+      "explanation": "This example uses a circuit breaker pattern. While it still calls UserService, the circuit breaker (like Hystrix) handles failures. Although not a direct fix for endpoint-based coupling, it improves resilience of service interactions."
+    },
+    {
+      "artifact_type": "configuration",
+      "language": "YAML",
+      "positive_example": "users:\n  host: user-service\n  port: 8080",
+      "explanation": "Configuring service endpoints by name (as above) allows the underlying platform to resolve the address. Here, user-service is used instead of a static IP. This aids in redirection to new instances without code changes."
+    },
+    {
+      "artifact_type": "service",
+      "language": "Scala",
+      "positive_example": "class AuthService(client: HttpClient) {\n  def login(credentials: Credentials) = {\n    // Using SRV DNS to find the service\n    val response = client.get(\"http://auth-service/auth/login\")\n    response\n  }\n}",
+      "explanation": "This Scala service uses the name 'auth-service' for the URI. In many systems, SRV DNS records or service discovery resolve this to active instances of the AuthService. It avoids binding to one endpoint."
     }
   ],
   "meta_data": {
-    "tags": ["hardcoded-endpoint", "service-discovery", "coupling", "scalability", "resilience"],
+    "tags": [
+        "scalability", "resilience", "performance", "coupling", "availability"],
     "remediation_difficulty": "Medium",
     "impact": "Medium"
   }

@@ -1,0 +1,146 @@
+{
+  "smell_name": "shared persistence",
+  "brief_description": "Shared Persistence is an architectural smell that occurs when multiple microservices directly access and manipulate the same underlying database or data store. This practice fundamentally violates the microservices principle of service independence and decentralized data ownership, where each service should exclusively own and manage its own data.",
+  "microservices_context":[
+        "Services share a common database or schema (e.g., a centralized legacy database)",
+        "Workaround for avoiding distributed transactions or joins across services",
+        "Incomplete decomposition of monolith (data layer not separated)",
+        "Teams not enforcing data encapsulation (multiple services using one repository)",
+        "Polyglot persistence not adopted (forcing all services to use same DB type)"
+    ],
+  "manifestations":[
+    {
+      "artifact_type": "Database Schema",
+      "language": "SQL, JSON (for NoSQL)",
+      "negative_example": "Database schema modifications (e.g., adding a column, changing a data type, altering an index) require coordinated changes, testing, and redeployments across multiple services, rather than being isolated to a single service.",
+      "explanation": "This indicates a lack of clear schema ownership and tight coupling at the data layer. [4]"
+    },
+    {
+      "artifact_type": "Organizational/Process",
+      "language": "N/A",
+      "negative_example": "Ambiguity about which service is the authoritative source or primary owner of a particular piece of data, leading to conflicting data updates, inconsistencies, or a lack of accountability for data quality.",
+      "explanation": "This is a symptom of unclear data boundaries and shared responsibility, which undermines microservice autonomy. [1]"
+    },
+    {
+      "artifact_type": "Code/Configuration (NoSQL)",
+      "language": "Various",
+      "negative_example": "Multiple services accessing the same NoSQL collection (e.g., MongoDB) develop implicit dependencies on data structure and modification patterns, creating 'hidden coupling' despite the absence of a rigid schema.",
+      "explanation": "Even without a formal schema, implicit contracts can form, leading to the same problems as shared relational databases. [3, 4]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "negative_example": "moneyTransferService.updateAccountBalance(accountId, newBalance); // Directly updates Account table via shared connection",
+      "explanation": "`MoneyTransferService` directly modifies an `Account` balance in a shared database, bypassing the encapsulated logic of the `Account` aggregate and event-based updates. [6, 4]"
+    },
+    {
+      "artifact_type": "Database Schema Definition",
+      "language": "SQL",
+      "negative_example": "CREATE TABLE SharedBankDB.Customers (id INT, name VARCHAR); CREATE TABLE SharedBankDB.Accounts (id INT, customer_id INT, balance DECIMAL);",
+      "explanation": "Both `Customers Service` and `Accounts Service` access the same `SharedBankDB`. Changes to the `Customers` table schema affect `Accounts Service` and vice versa, leading to tight coupling and coordination challenges. [6, 4]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "negative_example": "customerViewService.mongoTemplate.update(\"accounts_view\", query, update); // Directly modifies accounts_view collection",
+      "explanation": "The `Customers View Service` directly writes to the `Accounts View Service`'s MongoDB collection. Even in schema-less databases, this creates hidden coupling and potential data inconsistencies. [6, 4]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "negative_example": "public class BankRepository { public Account findAccount(String id); public void saveMoneyTransfer(MoneyTransfer transfer); }",
+      "explanation": "A single repository class (e.g., `BankRepository`) handles persistence for multiple aggregates (`Account`, `MoneyTransfer`) across different services. This indicates a shared persistence layer, violating data ownership. [1, 4]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "negative_example": "// In common/src/main/java/com/bank/common/entities/AccountEntity.java @Entity public class AccountEntity {... } // Used by both accounts-service and money-transfer-service",
+      "explanation": "A `common` module containing shared JPA entities (`AccountEntity`) directly used by multiple services for persistence. This enforces schema coupling and shared data access. [4]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "negative_example": "customerService.jdbcTemplate.query(\"SELECT * FROM accounts.account_table WHERE customer_id =?\", customerId);",
+      "explanation": "`Customers Service` directly executes SQL queries on the `Accounts Service`'s database, bypassing the `Accounts Service`'s API and violating its data ownership. [1, 4]"
+    },
+    {
+      "artifact_type": "Configuration File",
+      "language": "Properties",
+      "negative_example": "// accounts-service/src/main/resources/application.properties: spring.datasource.url=jdbc:mysql://localhost:3306/bank_db\n// money-transfer-service/src/main/resources/application.properties: spring.datasource.url=jdbc:mysql://localhost:3306/bank_db",
+      "explanation": "Both `accounts-service` and `money-transfer-service` are configured to connect to the *same database instance and schema*. This is a clear indicator of shared persistence. [6, 4]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "negative_example": "// In the MoneyTransferService, direct access to DTO that maps Account from the shared database public AccountDto getAccountFromSharedDb(String accountId) { return sharedAccountDao.findById(accountId); }",
+      "explanation": "A service (e.g., `MoneyTransferService`) includes a DAO (Data Access Object) for an entity (e.g., `Account`) that should be exclusively owned by another service (e.g., `AccountService`), indicating direct and shared database access. [4]"
+    },
+    {
+      "artifact_type": "Development Methodology",
+      "language": "Process",
+      "negative_example": "A development team implements a new feature requiring changes to a shared table, and all other teams using that table must pause their work to coordinate the change and deployment.",
+      "explanation": "The necessity for extensive, cross-team coordination for database schema changes is a direct consequence of shared persistence and a symptom of tight coupling. [4]"
+    }
+  ],
+  "positive_examples":[
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "positive_example": "public class MoneyTransfer extends ReflectiveMutableCommandProcessingAggregate<MoneyTransfer, MoneyTransferCommand> { /*... process(InitiateTransferCommand cmd) { return EventUtil.events(new MoneyTransferCreatedEvent(...)); }... */ }",
+      "explanation": "The `MoneyTransfer` aggregate manages its own state and orchestrates transfers by publishing events, rather than directly modifying `Account` data in a shared database. [5, 6]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "positive_example": "@EventSubscriber(id = \"accountWorkflow\") public class AccountWorkflow { @EventHandlerMethod public CompletableFuture<EntityWithIdAndVersion<Account>> debitAccount(EventHandlerContext<MoneyTransferCreatedEvent> ctx) { /*... ctx.update(Account.class, accountId, new DebitAccountCommand(...));... */ } }",
+      "explanation": "`AccountService` (via `AccountWorkflow`) reacts to `MoneyTransferCreatedEvent` by updating its own `Account` aggregate, demonstrating event-driven communication and independent data management rather than direct database access. [5, 6, 8]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "positive_example": "@EventSubscriber(id = \"moneyTransferWorkflow\") public class MoneyTransferWorkflow { @EventHandlerMethod public CompletableFuture<EntityWithIdAndVersion<MoneyTransfer>> recordDebit(EventHandlerContext<AccountDebitedEvent> ctx) { /*... ctx.update(MoneyTransfer.class, transferId, new DebitRecordedCommand(...));... */ } }",
+      "explanation": "`MoneyTransferService` (via `MoneyTransferWorkflow`) updates its own `MoneyTransfer` aggregate based on `AccountDebitedEvent`, reinforcing independent data ownership through event choreography. [5, 6]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "positive_example": "@EventSubscriber(id = \"accountQueryWorkflow\") public class AccountQueryWorkflow { @EventHandlerMethod public CompletableFuture<?> updateAccountView(EventHandlerContext<AccountOpenedEvent> ctx) { /*... accountInfoRepository.save(new AccountInfo(...));... */ } }",
+      "explanation": "The `AccountQueryWorkflow` subscribes to events (e.g., `AccountOpenedEvent`) and updates its dedicated MongoDB view via `AccountInfoRepository`, exemplifying CQRS read-side separation. [5, 6]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "positive_example": "public interface AccountInfoRepository extends MongoRepository<AccountInfo, String> { /*... */ }",
+      "explanation": "A dedicated Spring Data MongoDB repository for the `AccountInfo` read model, distinct from any command-side persistence, reinforcing the separation of concerns and data stores in CQRS. [5]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "positive_example": "eventStore.save(Account.class, new AccountCreatedEvent(initialBalance));",
+      "explanation": "The `EventStore` API is used to persist events for a single aggregate, ensuring that persistence operations are aggregate-specific and event-based, not direct manipulations of tables across multiple services. [6]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "positive_example": "public List<Event> process(CreateAccountCommand cmd) { return EventUtil.events(new AccountCreatedEvent(cmd.getInitialBalance())); }",
+      "explanation": "Commands are processed by a single aggregate (`Account`), ensuring that business logic and state changes are encapsulated within that aggregate's boundaries, preventing direct data manipulation across aggregates. [6, 8]"
+    },
+    {
+      "artifact_type": "Source Code",
+      "language": "Java",
+      "positive_example": "public void apply(AccountCreatedEvent event) { this.balance = event.getInitialBalance(); this.state = AccountState.OPENED; }",
+      "explanation": "Events are applied to a single aggregate (`Account`) to reconstitute its state, reinforcing the aggregate as the unit of data ownership and ensuring consistency within its bounded context. [6, 8]"
+    },
+    {
+      "artifact_type": "Architectural Design",
+      "language": "Diagram/Concept",
+      "positive_example": "The architectural diagram shows Customers Service, Accounts Service, Transactions Service, Customers View Service, and Accounts View Service as distinct components, each with their own responsibilities and implicit data ownership.",
+      "explanation": "The high-level architectural decomposition into distinct services with clear responsibilities inherently promotes decentralized data management by defining independent boundaries for data ownership. [5, 6]"
+    }
+  ],
+  "metadata": {
+    "tags": ["shared-database", "data-coupling", "schema-sharing", "database-integration"],
+    "remediation_difficulty": "High",
+    "impact": "High"
+  }
+}

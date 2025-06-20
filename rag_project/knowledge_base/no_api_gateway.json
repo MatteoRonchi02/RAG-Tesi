@@ -9,114 +9,126 @@
   ],
   "manifestations": [
     {
-      "artifact_type": "Kubernetes Service Definition (Hypothetical Bad Practice)",
-      "language": "YAML",
-      "negative_example": "apiVersion: v1\nkind: Service\nmetadata:\n  name: cartservice-external\n  labels:\n    app: cartservice\nspec:\n  type: LoadBalancer\n  selector:\n    app: cartservice\n  ports:\n  - name: grpc\n    port: 7070\n    targetPort: 7070",
-      "explanation": "Exposing the `cartservice` directly as a `LoadBalancer` to external clients. This makes an internal service publicly accessible, increasing the attack surface and violating the principle of hiding internal complexity behind a gateway., "
-    },
-    {
-      "artifact_type": "Node.js Code (Payments Service - Hypothetical External Exposure)",
-      "language": "Node.js",
-      "negative_example": "// paymentservice/server.js\nconst express = require('express');\nconst app = express();\nconst PORT = process.env.PORT || 8080;\napp.listen(PORT, () => {\n  console.log(`Payments service listening on port ${PORT} directly exposed.`);\n});\n//... no API gateway in front, directly accessible from outside",
-      "explanation": "If the `paymentservice` (Node.js) were directly exposed to the internet without an API Gateway, it would handle external requests directly. This means each microservice would need to implement its own security, rate limiting, and other cross-cutting concerns, leading to code duplication and inconsistency."
-    },
-    {
-      "artifact_type": "Python Code (Email Service - Hypothetical Client-Side Aggregation)",
-      "language": "Python",
-      "negative_example": "import requests\n\ndef get_order_details(order_id):\n    # Client-side logic to fetch from multiple services\n    user_info = requests.get(f'http://userservice.example.com/users/{order_id}').json()\n    items = requests.get(f'http://productservice.example.com/orders/{order_id}/items').json()\n    payment_status = requests.get(f'http://paymentservice.example.com/orders/{order_id}/status').json()\n    return {'user': user_info, 'items': items, 'payment': payment_status}",
-      "explanation": "A hypothetical client (e.g., a batch processing script or another internal service acting as an external client) directly calls multiple services (`userservice`, `productservice`, `paymentservice`) to aggregate data for an email. This increases client complexity and latency due to multiple round trips."
-    },
-    {
-      "artifact_type": "C# Code (Cart Service - Hypothetical Direct Client Access)",
-      "language": "C#",
-      "negative_example": "// In CartService.cs, if it directly handled HTTP requests from external clients:\npublic class CartController : ControllerBase\n{\n    [HttpPost(\"cart/{userId}\")]\n    public IActionResult AddItem(string userId, CartItem item)\n    {\n        // Direct handling of external HTTP requests without gateway\n        // This service would need to implement its own auth, rate limiting etc.\n        return Ok();\n    }\n}",
-      "explanation": "If the `cartservice` (C#) were designed to directly expose REST endpoints to external clients, it would necessitate implementing security and other cross-cutting concerns within the service itself, instead of offloading them to a centralized API Gateway."
-    },
-    {
-      "artifact_type": "Java Code (Ad Service - Hypothetical Direct External Exposure)",
+      "artifact_type": "client",
       "language": "Java",
-      "negative_example": "// AdService.java main method, if it started an HTTP server directly exposed:\npublic static void main(String args) throws IOException, InterruptedException {\n    HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);\n    server.createContext(\"/ads\", new AdHandler());\n    server.setExecutor(null); // creates a default executor\n    server.start();\n    System.out.println(\"AdService HTTP server started directly.\");\n}",
-      "explanation": "A hypothetical scenario where the `adservice` (Java) directly starts an HTTP server and is exposed to the internet. This would mean external clients directly access this service, increasing the attack surface and distributing security concerns across the application."
+      "negative_example": "public class Client {\n    public void fetchData() {\n        // Directly calling service endpoints without a gateway\n        RestTemplate restTemplate = new RestTemplate();\n        List<Product> products = restTemplate.getForObject(\n            \"http://product-service:8080/products\", List.class);\n        List<Order> orders = restTemplate.getForObject(\n            \"http://order-service:8081/orders\", List.class);\n    }\n}",
+      "explanation": "The client directly invokes each microservice by its URL. Without an API gateway, every service endpoint must be managed separately, duplicating concerns like authentication and versioning, and hindering scalability."
     },
     {
-      "artifact_type": "Kubernetes Network Policy (Absence of Restriction)",
-      "language": "YAML",
-      "negative_example": "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-all-ingress\nspec:\n  podSelector: {}\n  ingress:\n  - {}",
-      "explanation": "A Kubernetes NetworkPolicy that allows all ingress traffic to all pods. While not directly 'no API Gateway', this configuration *enables* the 'no API Gateway' smell by failing to restrict external access to only the designated gateway service, allowing direct access to internal services if they are exposed."
+      "artifact_type": "client",
+      "language": "Kotlin",
+      "negative_example": "suspend fun fetchData(client: HttpClient) {\n    // Calling services directly without a gateway\n    val products: List<Product> = client.get(\"http://product-service:8080/products\")\n    val orders: List<Order> = client.get(\"http://order-service:8081/orders\")\n}",
+      "explanation": "This Kotlin code contacts each microservice endpoint directly. In a well-designed system, a gateway or service discovery mechanism would centralize calls, but here each service must be addressed individually."
     },
     {
-      "artifact_type": "Go Code (Product Catalog Service - Hypothetical External Exposure)",
+      "artifact_type": "client",
+      "language": "Scala",
+      "negative_example": "import scalaj.http.Http\n\nval route = path(\"orders\") {\n  get {\n    complete(orderService.fetchAll())\n  }\n}",
+      "explanation": "The code explicitly builds HTTP requests to each microservice. Bypassing a gateway means the client must know service URLs, reducing flexibility (e.g., on scaling or migrations)."
+    },
+    {
+      "artifact_type": "client",
       "language": "Go",
-      "negative_example": "// productcatalogservice/server.go\n// If this service were configured to listen on a public IP and port:\nfunc main() {\n    lis, err := net.Listen(\"tcp\", \":8080\") // Listen on all interfaces\n    //... no external load balancer or gateway in front\n    grpcServer.Serve(lis)\n}",
-      "explanation": "If the `productcatalogservice` (Go) were configured to listen on all network interfaces and was directly exposed to the internet without an API Gateway or proper network segmentation, it would allow external clients to bypass the intended entry point, increasing security risks."
+      "negative_example": "func fetchData() {\n    // Directly calling microservice URLs\n    resp1, _ := http.Get(\"http://product-service:8080/products\")\n    resp2, _ := http.Get(\"http://order-service:8081/orders\")\n    defer resp1.Body.Close()\n    defer resp2.Body.Close()\n}",
+      "explanation": "The Go function requests each service by its fixed address. Without a gateway or discovery, these calls assume static URLs, so any address change breaks the client."
     },
     {
-      "artifact_type": "Client-Side Code (Mobile App - Hypothetical Multi-Service Calls)",
-      "language": "Swift (Illustrative)",
-      "negative_example": "func loadHomePageData() {\n    // Call product service\n    ProductAPI.shared.getProducts { products in\n        // Call currency service\n        CurrencyAPI.shared.getExchangeRates { rates in\n            // Call ad service\n            AdAPI.shared.getAds { ads in\n                // Display data\n            }\n        }\n    }\n}",
-      "explanation": "A hypothetical mobile application making separate, direct API calls to `ProductAPI`, `CurrencyAPI`, and `AdAPI`. This results in multiple client-server round trips, leading to higher latency and a poorer user experience, which an API Gateway could optimize through aggregation."
+      "artifact_type": "controller",
+      "language": "Java",
+      "negative_example": "@RestController\npublic class OrderController {\n    @GetMapping(\"/orders\")\n    public List<Order> getOrders() {\n        // logic here\n    }\n}",
+      "explanation": "This microservice controller exposes its endpoint directly. Without an API gateway, each such endpoint is public, forcing clients to call them individually and potentially bypassing cross-cutting policies."
     },
     {
-      "artifact_type": "Configuration File (Nginx - Hypothetical Direct Service Proxy)",
-      "language": "Nginx Conf",
-      "negative_example": "server {\n    listen 80;\n    server_name cart.example.com;\n    location / {\n        proxy_pass http://cartservice-internal-ip:7070;\n    }\n}\n\nserver {\n    listen 80;\n    server_name product.example.com;\n    location / {\n        proxy_pass http://productcatalogservice-internal-ip:3550;\n    }\n}",
-      "explanation": "Using a simple reverse proxy (like Nginx) that directly maps external domains to individual internal microservices. While a reverse proxy, it lacks the advanced features of an API Gateway (aggregation, centralized security, rate limiting) and still exposes multiple distinct endpoints to the client, failing to provide a unified facade."
+      "artifact_type": "controller",
+      "language": "Kotlin",
+      "negative_example": "@RestController\nclass CustomerController {\n    @GetMapping(\"/customers\")\n    fun getCustomers(): List<Customer> {\n        // logic\n    }\n}",
+      "explanation": "The service defines a controller with a public API path. In isolation, each microservice offering endpoints means clients must discover and call each one. An API gateway could abstract these paths behind a single URL space."
+    },
+    {
+      "artifact_type": "routing",
+      "language": "Scala",
+      "negative_example": "val route = path(\"orders\") {\n  get {\n    complete(orderService.fetchAll())\n  }\n}",
+      "explanation": "This Scala Akka-HTTP route exposes an orders endpoint. Each route in individual services adds an open API. With no gateway, the routing of requests is decentralized and scattered across services."
+    },
+    {
+      "artifact_type": "handler",
+      "language": "Go",
+      "negative_example": "func main() {\n    http.HandleFunc(\"/payments\", handlePayments)\n    log.Fatal(http.ListenAndServe(\":8082\", nil))\n}",
+      "explanation": "In this Go service, the /payments endpoint is registered directly on port 8082. Each service stands alone. Without a gateway or proxy, the client needs the service's port and path, rather than going through a unified interface."
+    },
+    {
+      "artifact_type": "security filter",
+      "language": "Java",
+      "negative_example": "@Component\npublic class JwtFilter extends OncePerRequestFilter {\n    @Override\n    protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain) {\n        // Perform JWT authentication\n    }\n}",
+      "explanation": "This filter enforces authentication. In a no-gateway scenario, each service must implement its own security filter like this, duplicating security logic across services instead of centralizing it in an API gateway."
+    },
+    {
+      "artifact_type": "security filter",
+      "language": "Kotlin",
+      "negative_example": "@Component\nclass JwtAuthFilter : OncePerRequestFilter() {\n    override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {\n        // Perform token validation\n    }\n}",
+      "explanation": "Like the Java example, this Kotlin filter handles authentication. With no centralized gateway, each service must protect itself, leading to repetitive code and potential inconsistencies."
     }
   ],
   "positive": [
-  {
-      "artifact_type": "Go Code (Frontend Service)",
-      "language": "Go",
-      "positive_example": "func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {\n    // Handles incoming HTTP requests from external clients\n    // Calls productcatalogservice and adservice internally via gRPC\n    products, err := fe.productCatalogServiceClient.ListProducts(ctx, &pb.Empty{}) // Internal gRPC call\n    ads, err := fe.adServiceClient.GetAds(ctx, &pb.AdRequest{ContextKeys:string{\"home\"}}) // Internal gRPC call\n    // Aggregates data and renders HTML\n}",
-      "explanation": "The `homeHandler` in the `frontend` service receives a single HTTP request from the client and then internally orchestrates calls to multiple backend services (productcatalogservice, adservice) via gRPC. This demonstrates request aggregation, reducing the number of round trips for the client."
+    {
+      "artifact_type": "configuration",
+      "language": "Java",
+      "positive_example": "@Bean\n@LoadBalanced\npublic RestTemplate restTemplate() {\n    return new RestTemplate();\n}",
+      "explanation": "Registering a load-balanced RestTemplate allows service calls by name (using discovery) instead of fixed endpoints. This means clients use logical service addresses (e.g., http://order-service) and the underlying system handles load balancing, supporting scalability."
     },
     {
-      "artifact_type": "Kubernetes Deployment (Frontend Service)",
+      "artifact_type": "gateway",
+      "language": "Java",
+      "positive_example": "@SpringBootApplication\n@EnableZuulProxy\npublic class ApiGatewayApplication {\n    public static void main(String[] args) {\n        SpringApplication.run(ApiGatewayApplication.class, args);\n    }\n}",
+      "explanation": "This is a Spring Boot API gateway using Netflix Zuul. All client requests can go through this gateway, which routes to underlying services (not shown). This centralizes authentication, logging, and other concerns, avoiding the 'no gateway' smell."
+    },
+    {
+      "artifact_type": "gateway",
+      "language": "Java",
+      "positive_example": "@Bean\npublic RouteLocator customRouteLocator(RouteLocatorBuilder builder) {\n    return builder.routes()\n        .route(\"order-service\", r -> r.path(\"/orders/**\")\n            .uri(\"lb://order-service\"))\n        .build();\n}",
+      "explanation": "This Spring Cloud Gateway configuration sets up a route using the logical service name 'order-service'. The gateway uses load-balanced addresses (lb://) so new instances are automatically included, and clients only use the gateway paths."
+    },
+    {
+      "artifact_type": "client",
+      "language": "Kotlin",
+      "positive_example": "@FeignClient(\"order-service\")\ninterface OrderClient {\n    @GetMapping(\"/orders\")\n    fun getOrders(): List<Order>\n}",
+      "explanation": "Using a Feign client, the code refers to 'order-service' by name. The service discovery mechanism resolves the actual endpoint. This abstracts direct URLs and leverages a centralized registry or gateway."
+    },
+    {
+      "artifact_type": "producer",
+      "language": "Scala",
+      "positive_example": "producer.send(new ProducerRecord<>(\"order-requests\", new GetAllOrdersEvent()))",
+      "explanation": "This Scala code publishes a request event to a message broker (Kafka). Services subscribe to topics instead of direct HTTP calls. Using an asynchronous message-oriented approach decouples services and avoids direct endpoint coupling."
+    },
+    {
+      "artifact_type": "client",
+      "language": "Go",
+      "positive_example": "func fetchData() {\n    // Use service URL from environment variable or service discovery\n    ordersURL := os.Getenv(\"ORDER_SERVICE_URL\")\n    resp, err := http.Get(fmt.Sprintf(\"%s/orders\", ordersURL))\n    defer resp.Body.Close()\n}",
+      "explanation": "Instead of hardcoding an address, the service URL is obtained from an environment variable (or discovery service). This allows dynamic resolution of service endpoints, as seen in containerized or orchestrated environments."
+    },
+    {
+      "artifact_type": "client",
+      "language": "Go",
+      "positive_example": "conn, err := grpc.Dial(\"order-service:50051\", grpc.WithInsecure())\norderClient := pb.NewOrderServiceClient(conn)\nres, err := orderClient.GetOrders(context.Background(), &pb.Empty{})",
+      "explanation": "Using gRPC with a service name (order-service) allows resolution via DNS or service registry. The client code does not hardcode IP addresses, and any number of instances of order-service can serve the request."
+    },
+    {
+      "artifact_type": "configuration",
       "language": "YAML",
-      "positive_example": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: frontend\n  labels:\n    app: frontend\nspec:\n  selector:\n    matchLabels:\n      app: frontend\n  template:\n    metadata:\n      labels:\n        app: frontend\n    spec:\n      containers:\n      - name: server\n        image: frontend\n        ports:\n        - containerPort: 8080\n        env:\n        - name: PRODUCT_CATALOG_SERVICE_ADDR\n          value: \"productcatalogservice:3550\"\n        - name: CURRENCY_SERVICE_ADDR\n          value: \"currencyservice:7000\"\n        - name: CART_SERVICE_ADDR\n          value: \"cartservice:7070\"\n        #... other service addresses",
-      "explanation": "The `frontend` Deployment configuration explicitly defines environment variables for the addresses of backend services (e.g., `productcatalogservice:3550`). This allows the `frontend` (acting as gateway) to know and route to internal services without exposing these internal addresses to external clients, maintaining abstraction."
+      "positive_example": "spring:\n  cloud:\n    gateway:\n      routes:\n        - id: order-service\n          uri: lb://order-service\n          predicates:\n            - Path=/orders/**\n        - id: product-service\n          uri: lb://product-service\n          predicates:\n            - Path=/products/**",
+      "explanation": "This Spring Cloud Gateway config in YAML defines routes for services with 'lb://' URIs. It uses logical names 'order-service' and 'product-service'. The gateway will distribute requests across instances of each service and present a unified API to clients."
     },
     {
-      "artifact_type": "Go Code (Frontend Authentication Mock)",
-      "language": "Go",
-      "positive_example": "func (fe *frontendServer) authMiddleware(next http.Handler) http.Handler {\n    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n        // In a real application, this would handle JWT validation, OAuth, etc.\n        // For demo, it might simulate session management or basic checks.\n        sessionID := getSessionID(r)\n        if!isValidSession(sessionID) {\n            http.Redirect(w, r, \"/login\", http.StatusFound)\n            return\n        }\n        next.ServeHTTP(w, r)\n    })\n}",
-      "explanation": "The `frontend` service, acting as the API Gateway, can implement centralized authentication/authorization middleware. This offloads security concerns from individual backend microservices, allowing them to focus on core business logic."
+      "artifact_type": "client",
+      "language": "Java",
+      "positive_example": "@FeignClient(\"product-service\")\npublic interface ProductClient {\n    @GetMapping(\"/products\")\n    List<Product> getProducts();\n}",
+      "explanation": "Here a Java Feign client calls 'product-service' by name. At runtime, service discovery and load-balancing mechanisms (e.g., Netflix Eureka + Ribbon) ensure the request reaches an appropriate instance. Clients do not manage raw endpoints."
     },
     {
-      "artifact_type": "Kubernetes Ingress (Hypothetical for Frontend)",
+      "artifact_type": "configuration",
       "language": "YAML",
-      "positive_example": "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: online-boutique-ingress\nspec:\n  rules:\n  - host: boutique.example.com\n    http:\n      paths:\n      - path: /\n        pathType: Prefix\n        backend:\n          service:\n            name: frontend-external\n            port:\n              number: 80",
-      "explanation": "While `microservices-demo` uses `LoadBalancer` directly, a common API Gateway pattern in Kubernetes is an Ingress controller. This snippet shows how an Ingress could route external traffic for a specific domain to the `frontend` service, acting as a sophisticated API gateway for HTTP/S traffic and centralizing access."
-    },
-    {
-      "artifact_type": "Go Code (Frontend Rate Limiting Example)",
-      "language": "Go",
-      "positive_example": "import \"golang.org/x/time/rate\"\n\nvar limiter = rate.NewLimiter(1, 5) // 1 request per second, burst of 5\n\nfunc (fe *frontendServer) rateLimitMiddleware(next http.Handler) http.Handler {\n    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n        if!limiter.Allow() {\n            http.Error(w, \"Too many requests\", http.StatusTooManyRequests)\n            return\n        }\n        next.ServeHTTP(w, r)\n    })\n}",
-      "explanation": "Implementing rate limiting logic within the `frontend` service (acting as API Gateway) ensures that the backend microservices are protected from excessive load. This centralizes a critical cross-cutting concern."
-    },
-    {
-      "artifact_type": "Go Code (Frontend Caching Example)",
-      "language": "Go",
-      "positive_example": "var productCache = make(map[string]*pb.Product)\n\nfunc (fe *frontendServer) getProductFromCache(productID string) (*pb.Product, bool) {\n    // Simplified caching logic\n    product, ok := productCache\n    return product, ok\n}\n\nfunc (fe *frontendServer) updateProductCache(product *pb.Product) {\n    productCache[product.Id] = product\n}",
-      "explanation": "The `frontend` service can implement caching mechanisms for frequently accessed data (e.g., product catalog). This reduces the load on backend services and improves response times for clients by minimizing internal round trips."
-    },
-    {
-      "artifact_type": "Kubernetes Manifest (ServiceAccount for Frontend)",
-      "language": "YAML",
-      "positive_example": "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: frontend\n  labels:\n    app: frontend",
-      "explanation": "Defining a dedicated ServiceAccount for the `frontend` service allows for fine-grained access control and security policies to be applied specifically to the gateway, enhancing overall system security by isolating it from other services."
-    },
-    {
-      "artifact_type": "Go Code (Frontend Protocol Translation Example)",
-      "language": "Go",
-      "positive_example": "func (fe *frontendServer) callBackendService(ctx context.Context, req *http.Request) (interface{}, error) {\n    //... logic to translate HTTP request to gRPC request...\n    grpcReq := &pb.CartRequest{UserId: getUserID(req), ProductId: getProductID(req)}\n    resp, err := fe.cartServiceClient.AddItem(ctx, grpcReq) // gRPC call\n    //... logic to translate gRPC response to HTTP response...\n    return resp, err\n}",
-      "explanation": "The `frontend` service translates incoming HTTP/REST requests from clients into gRPC calls for internal microservices. This allows internal services to use their preferred protocol while presenting a standardized interface to clients."
-    },
-    {
-      "artifact_type": "Kubernetes Manifest (Frontend Liveness/Readiness Probes)",
-      "language": "YAML",
-      "positive_example": "      livenessProbe:\n        httpGet:\n          path: /healthz\n          port: 8080\n        initialDelaySeconds: 15\n        periodSeconds: 10\n      readinessProbe:\n        httpGet:\n          path: /readyz\n          port: 8080\n        initialDelaySeconds: 15",
-      "explanation": "Implementing liveness and readiness probes for the `frontend` service allows Kubernetes to manage its lifecycle effectively. This ensures the API Gateway is healthy and ready to serve traffic, contributing to the overall availability and resilience of the system"
+      "positive_example": "spring:\n  cloud:\n    gateway:\n      routes:\n        - id: order-service\n          uri: lb://order-service\n          predicates:\n            - Path=/orders/**\n        - id: product-service\n          uri: lb://product-service\n          predicates:\n            - Path=/products/**",
+      "explanation": "This Spring Cloud Gateway config in YAML defines routes for services with 'lb://' URIs. It uses logical names 'order-service' and 'product-service'. The gateway will distribute requests across instances of each service and present a unified API to clients."
     }
 ],
   "meta_data": {
