@@ -201,104 +201,64 @@ except Exception as e:
 
 print("=============================================================================")
 
-SMELL_INSTRUCTIONS = {
-    "hardcoded secrets": """
-Look specifically for:
-- Passwords, API keys, secrets or tokens written in code or configs.
-- Environment variables or JSON keys like "password", "secret", "token", etc.
-- Credentials exposed in `application.properties`, `.env`, `.json`, or code.
-
-Do NOT flag:
-- Configurations that read from environment variables (e.g., `${TOKEN}`).
-- Placeholder values like `<password>` or `"***"` unless clearly real.
-
-Explain:
-- What the hardcoded secret is.
-- Why it creates a security risk (e.g., credentials leak, repo exposure).
-""",
-
-    "publicly accessible microservice": """
-Look specifically for:
-- Services exposing ports via Docker or Kubernetes (e.g., "8080:8080", NodePort, LoadBalancer).
-- Bindings to 0.0.0.0 or localhost where not appropriate.
-- Services exposing internal tools like ActiveMQ, Redis, or databases.
-
-Do NOT flag:
-- Legitimately exposed public frontends behind an API Gateway.
-
-Explain:
-- Why this service is exposed and how that creates risk (unauthenticated access, attack surface).
-""",
-
-    "unauthenticated traffic": """
-Look specifically for:
-- Services that use HTTP instead of HTTPS in internal or external communication.
-- Endpoints or services with no authentication mechanism.
-- Lack of authorization headers or session validation in frontend/backend flows.
-
-Do NOT flag:
-- Endpoints that are clearly behind an auth gateway.
-
-Explain:
-- Why this traffic is unauthenticated.
-- What access an attacker would gain.
-""",
-
-    "insufficient access control": """
-Look specifically for:
-- REST endpoints that expose sensitive operations without checking roles or permissions.
-- Lack of use of access control annotations (e.g., @PreAuthorize, @RolesAllowed).
-- No middleware/auth layer on critical routes.
-
-Do NOT flag:
-- Public resources clearly meant to be exposed (e.g., `/login`, `/docs`).
-
-Explain:
-- Which access control is missing.
-- What type of unauthorized access could occur.
-"""
-}
-
 # Nuovo prompt, si può migliorare
 prompt_template_str = """Instructions:
-1. You are an expert {TYPE_SMELL} auditor. Your task is to analyze specific code snippets for a given {TYPE_SMELL} smell.
-2. The 'Smell Definition' provides the official description and remediation strategies for the {TYPE_SMELL} vulnerability.
+
+1. You are an expert security auditor. Your task is to analyse specific code fragments in search of potential security smells.
+
+2. The 'Smell Definition' provides the official description and remediation strategies for the [Smell Name].
+
 3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
+
 4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
+
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
+
 6. Structure your answer as follows:
+
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - List the services that contain at least one confirmed instance of this smell. Format:
-    "Analyzed services with security smell:
-    - service-name-1
-    - service-name-2"
-    If no services are affected, return:
-    "Analyzed services with security smell: []"
-   - For each analyzed file, create a section, divided by a line of #.
-   - Under each file, list the snippets that ARE VULNERABLE.
+
+   - Create a list that contains only services that contain security smell, like this: "Analyzed services with security smell: \n - name of service".
+
+   - For each analyzed file path, create a section, divided by a line of #.
+
+   - Under each file path, list the snippets that ARE VULNERABLE.
+
    - For each vulnerable snippet, provide:
+
      a. The line of code or block that contains the smell.
+
      b. A clear explanation of WHY it is a vulnerability in this context.
+
    - If a snippet is NOT vulnerable, you don't need to mention it.
+
    - If, after analyzing all provided snippets, you find NO vulnerabilities, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
 
+
+
 --- Smell Definition ---
+
 {smell_definition}
 
---- Smell-specific detection instructions ---
-{smell_specific_instructions}
+
 
 --- Positive Examples (without smell) ---
+
 {positive_examples}
 
+
+
 --- Suspicious Code Snippets from Provided Folder ---
+
 {additional_folder_context}
+
+
 
 Answer (in the same language as the Question):"""
 
 # Creazione efettiva del prompt
 prompt_template = PromptTemplate(
-    input_variables=["TYPE_SMELL", "smell_definition", "positive_examples", "additional_folder_context", "smell_specific_instructions"],
+    input_variables=["TYPE_SMELL", "smell_definition", "positive_examples", "additional_folder_context"],
     template=prompt_template_str
 )
 
@@ -445,8 +405,7 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         TYPE_SMELL=TYPE_SMELL,
         smell_definition=smell_definition,
         positive_examples=positive_examples,
-        additional_folder_context=code_context_for_prompt,
-        smell_specific_instructions=SMELL_INSTRUCTIONS.get(user_query.lower(), "No specific instructions available.")
+        additional_folder_context=code_context_for_prompt
     ).replace("[Smell Name]", user_query)
 
     print("\n--- Final Prompt (before submission to the LLM) ---")
