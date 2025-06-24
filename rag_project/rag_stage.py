@@ -211,67 +211,26 @@ except Exception as e:
 
 print("=============================================================================")
 
-SMELL_INSTRUCTIONS = {
-    "no api gateway": """Your analysis for this specific smell MUST check for TWO distinct conditions:
-        a. **Total Absence**: First, check the provided code for any evidence of a gateway component (e.g., using Spring Cloud Gateway, Zuul, Ocelot, etc.). If there is no such code across all services, you must report that the smell is present at the system level.
-        b. **Bypassable Gateway**: If gateway code *does* exist, you MUST then inspect any `docker-compose.yml` file or similar container orchestration configuration. If services *other than* the designated API Gateway expose their `ports` to the public internet, this is a critical flaw. You must report this as a form of the 'No API Gateway' smell, as the gateway's routing is not being properly enforced, allowing direct access to microservices.""",
-    
-    "shared persistence": """Your analysis for the 'Shared Persistence' smell must be rigorous and technology-agnostic. To positively identify this smell in a service, you MUST find conclusive evidence for BOTH of the following conditions:
-        1.  **Shared Data Source Configuration:**
-            First, analyze configuration artifacts like `.yml`, `.properties`, `.json`, `.env` files, or container orchestration files (e.g., `docker-compose.yml`, Kubernetes manifests). You must find proof that multiple distinct services are configured to connect to the **exact same database instance** (e.g., same host, port, and database/schema name).
-
-        2.  **Active Database Interaction Code:**
-            Second, within the source code of that SAME service, you must find code that **actively interacts with a database**. Look for general patterns of database usage, such as:
-            - The import and use of a database driver, client, or connector.
-            - The instantiation or use of an Object-Relational Mapper (ORM) or Object-Document Mapper (ODM) client (e.g., Hibernate, Entity Framework, Sequelize, Mongoose, etc.).
-            - The presence of classes or functions following patterns like Repository, Data Access Object (DAO), or Active Record.
-            - Code that directly executes database queries (e.g., SQL statements).
-
-        **Crucial Rule:** A service should only be reported if you find strong evidence for **BOTH** shared configuration (Condition 1) AND active database usage (Condition 2). If a service appears to have a shared configuration but you cannot find corresponding code that uses it, you must consider it a non-actionable configuration artifact and **NOT** report it as exhibiting the 'Shared Persistence' smell.
-        """,
-
-    "endpoint based service interaction": """Your analysis for this specific smell MUST focus on identifying synchronous, point-to-point communication between services that creates tight coupling. Look for:
-        a. **HTTP Client Usage**: Identify the use of HTTP clients to call other internal services (e.g., `RestTemplate`, `WebClient`, `@FeignClient`, `HttpClient`, etc.).
-        b. **Direct Service URLs**: Look for hard-coded URLs or configuration entries that point directly to another service's address.
-        c. **Absence of Messaging**: The lack of message queue or event streaming clients (e.g., for RabbitMQ, Kafka) suggests synchronous communication.
-
-        **Crucial Exception Rule:** An **API Gateway** component, whose primary function is to route external requests to internal services via HTTP, should **NOT** be reported as exhibiting this smell. The smell applies to direct, peer-to-peer communication between internal services, not to the centralized routing performed by a gateway.
-    """,
-
-    "wobbly service interaction": """Your analysis for this specific smell MUST focus on identifying inefficient and "chatty" communication patterns where a service makes multiple synchronous calls to another single service to complete one task. Look for:
-        a. **Calls Inside Loops**: This is the strongest indicator. Search for code where an HTTP client (like `RestTemplate`, `WebClient`, `FeignClient`) is invoked REPEATEDLY inside a `for`, `while`, or `stream().forEach()` loop. For example, getting a list of IDs and then calling another service for each single ID in the list.
-        b. **Sequential Calls to the Same Service**: Look for methods that make multiple, separate calls to the same remote service to gather different pieces of data about the same entity. For example, `product = productService.getProduct(id)`, then `stock = productService.getStock(id)`, then `reviews = productService.getReviews(id)`. This indicates the remote API is not coarse-grained enough.
-        c. **Complex Data Aggregation**: Identify client-side logic that exists only to stitch together the results of multiple small calls from another service. This logic is a symptom of the wobbly interaction."""
-}
-
 # New prompt, can be improved
 prompt_template_str = """Instructions:
-1. You are an expert Architectural auditor. Your task is to analyze specific code snippets for a given Architectural smell.
-2. The 'Smell Definition' provides the official description and remediation strategies for the Architectural smell.
+1. You are an expert Architectural Smell auditor. Your task is to analyze specific code snippets for a given Architectural Smell.
+2. The 'Smell Definition' provides the official description and remediation strategies for the Architectural vulnerability.
 3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
 4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
 6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - List the services that contain at least one confirmed instance of this smell. Format:
-    "Analyzed services with Architectural smell:
-    - service-name-1
-    - service-name-2"
-    If no services are affected, return:
-    "Analyzed services with Architectural smell: []"
+   - Create a list that contains only services that contain Architectural smell, like this: "Analyzed services with Architectural smell: \n - name of service".
    - For each analyzed file path, create a section, divided by a line of #.
-   - Under each file path, list the snippets that ARE AFFECTED BY THE SMELL.
-   - For each affected snippet, provide:
+   - Under each file path, list the snippets that ARE VULNERABLE.
+   - For each vulnerable snippet, provide:
      a. The line of code or block that contains the smell.
-     b. A clear explanation of WHY it is an Architectural smell in this context.
-   - If a snippet is NOT affected by the smell, you don't need to mention it.
-   - If, after analyzing all provided snippets, you find NO instances of the smell, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
+     b. A clear explanation of WHY it is a vulnerability in this context.
+   - If a snippet is NOT vulnerable, you don't need to mention it.
+   - If, after analyzing all provided snippets, you find NO vulnerabilities, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
 
 --- Smell Definition ---
 {smell_definition}
-
---- Smell-specific detection instructions ---
-{smell_specific_instructions}
 
 --- Positive Examples (without smell) ---
 {positive_examples}
@@ -283,7 +242,7 @@ Answer (in the same language as the Question):"""
 
 # Actual prompt creation
 prompt_template = PromptTemplate(
-    input_variables=["smell_definition", "positive_examples", "additional_folder_context", "smell_specific_instructions"],
+    input_variables=["smell_definition", "positive_examples", "additional_folder_context"],
     template=prompt_template_str
 )
 
@@ -440,8 +399,7 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
     final_prompt_string = prompt_template.format(
         smell_definition=smell_definition,
         positive_examples=positive_examples,
-        additional_folder_context=code_context_for_prompt,
-        smell_specific_instructions=SMELL_INSTRUCTIONS.get(user_query.lower(), "No specific instructions available for this smell.")
+        additional_folder_context=code_context_for_prompt
     ).replace("[Smell Name]", user_query)
 
     print("\n--- Final Prompt (before sending to LLM) ---")
