@@ -26,9 +26,6 @@ IGNORE_FILENAME_SUFFIXES = {
     'Request.java', 'Response.java', 'Exception.java'
 }
 
-#Cambiare il tipo di smell da analizzare
-TYPE_SMELL = os.getenv("TYPE_SMELL", "Architectural")
-
 load_dotenv()
 aiplatform.init(
     project=os.getenv("GPC_PROJECT_ID"),
@@ -249,8 +246,8 @@ SMELL_INSTRUCTIONS = {
 
 # Nuovo prompt, si può migliorare
 prompt_template_str = """Instructions:
-1. You are an expert {TYPE_SMELL} auditor. Your task is to analyze specific code snippets for a given {TYPE_SMELL} smell.
-2. The 'Smell Definition' provides the official description and remediation strategies for the {TYPE_SMELL} smell.
+1. You are an expert Architectural auditor. Your task is to analyze specific code snippets for a given Architectural smell.
+2. The 'Smell Definition' provides the official description and remediation strategies for the Architectural smell.
 3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
 4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
@@ -286,7 +283,7 @@ Answer (in the same language as the Question):"""
 
 # Creazione efettiva del prompt
 prompt_template = PromptTemplate(
-    input_variables=["TYPE_SMELL", "smell_definition", "positive_examples", "additional_folder_context", "smell_specific_instructions"],
+    input_variables=["smell_definition", "positive_examples", "additional_folder_context", "smell_specific_instructions"],
     template=prompt_template_str
 )
 
@@ -441,7 +438,6 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
     )
     
     final_prompt_string = prompt_template.format(
-        TYPE_SMELL=TYPE_SMELL,
         smell_definition=smell_definition,
         positive_examples=positive_examples,
         additional_folder_context=code_context_for_prompt,
@@ -500,11 +496,11 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
     print(f"\n--- Valutazione ---")
     print(f"Precision: {precision:.2f}, Recall: {recall:.2f}, F1: {f1:.2f}")
 
-print(f"\n-----------------RAG with Gemini for {TYPE_SMELL} Smell detection----------------")
+print("\n-----------------RAG with Gemini for Architectural Smell detection----------------")
 print("Scrivi il nome dello smell su cui vuoi fare l'analisi (o 'exit' per uscire).")
 
 while True:
-    user_query = input(f"\nNome dello {TYPE_SMELL} Smell: ")
+    user_query = input("\nNome dello Architectural Smell: ")
     if user_query.lower() in ["exit", "quit", "esci", "stop", "x", "q"]:
         print("Uscita dal programma.")
         break
