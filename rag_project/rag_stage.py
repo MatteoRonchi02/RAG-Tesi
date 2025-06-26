@@ -209,12 +209,8 @@ Look specifically for:
 - Credentials exposed in `application.properties`, `.env`, `.json`, or code.
 
 Do NOT flag:
-- Configurations that read from environment variables (e.g., `${TOKEN}`).
+- Configurations that read from environment variables (e.g., @Value "${apikey.value}").
 - Placeholder values like `<password>` or `"***"` unless clearly real.
-
-Explain:
-- What the hardcoded secret is.
-- Why it creates a security risk (e.g., credentials leak, repo exposure).
 """,
 
     "publicly accessible microservice": """
@@ -225,9 +221,6 @@ Look specifically for:
 
 Do NOT flag:
 - Legitimately exposed public frontends behind an API Gateway.
-
-Explain:
-- Why this service is exposed and how that creates risk (unauthenticated access, attack surface).
 """,
 
     "unauthenticated traffic": """
@@ -238,10 +231,6 @@ Look specifically for:
 
 Do NOT flag:
 - Endpoints that are clearly behind an auth gateway.
-
-Explain:
-- Why this traffic is unauthenticated.
-- What access an attacker would gain.
 """,
 
     "insufficient access control": """
@@ -252,10 +241,6 @@ Look specifically for:
 
 Do NOT flag:
 - Public resources clearly meant to be exposed (e.g., `/login`, `/docs`).
-
-Explain:
-- Which access control is missing.
-- What type of unauthorized access could occur.
 """
 }
 
