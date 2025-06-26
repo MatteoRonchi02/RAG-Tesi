@@ -204,55 +204,16 @@ print("=========================================================================
 # Nuovo prompt, si può migliorare
 prompt_template_str = """Instructions:
 
-1. You are an expert security auditor. Your task is to analyse specific code fragments in search of potential security smells.
-
-2. The 'Smell Definition' provides the official description and remediation strategies for the [Smell Name].
-
-3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
-
-4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
-
-5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
-
-6. Structure your answer as follows:
-
+You are an expert security auditor. \n
+The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell. \n
+Your goal is to analyze suspicious snippet and determine if it is affected by the defined smell.
+Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-
    - Create a list that contains only services that contain security smell, like this: "Analyzed services with security smell: \n - name of service".
-
-   - For each analyzed file path, create a section, divided by a line of #.
-
-   - Under each file path, list the snippets that ARE VULNERABLE.
-
-   - For each vulnerable snippet, provide:
-
-     a. The line of code or block that contains the smell.
-
-     b. A clear explanation of WHY it is a vulnerability in this context.
-
-   - If a snippet is NOT vulnerable, you don't need to mention it.
-
-   - If, after analyzing all provided snippets, you find NO vulnerabilities, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
-
-
-
---- Smell Definition ---
-
-{smell_definition}
-
-
-
---- Positive Examples (without smell) ---
-
-{positive_examples}
-
-
+   - Write the the path, snippet and explaination for the vulnerable snippet.
 
 --- Suspicious Code Snippets from Provided Folder ---
-
 {additional_folder_context}
-
-
 
 Answer (in the same language as the Question):"""
 
