@@ -261,14 +261,14 @@ Explain:
 
 # Nuovo prompt, si può migliorare
 prompt_template_str = """Instructions:
-1. You are an expert {TYPE_SMELL} auditor. Your task is to analyze specific code snippets for a given {TYPE_SMELL} smell.
-2. The 'Smell Definition' provides the official description and remediation strategies for the {TYPE_SMELL} vulnerability.
+1. You are an expert security auditor. Your task is to analyze specific code snippets for a given [Smell name].
+2. The 'Smell Definition' provides the official description and remediation strategies for the [Smell name] smell.
 3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
 4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
 5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
 6. Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - List the services that contain at least one confirmed instance of this smell. Format:
+   - List ALL the services that contain at least one confirmed instance of this smell. Format:
     "Analyzed services with security smell:
     - service-name-1
     - service-name-2"
@@ -277,8 +277,8 @@ prompt_template_str = """Instructions:
    - For each analyzed file, create a section, divided by a line of #.
    - Under each file, list the snippets that ARE VULNERABLE.
    - For each vulnerable snippet, provide:
-     a. The line of code or block that contains the smell.
-     b. A clear explanation of WHY it is a vulnerability in this context.
+     a. The snippet of code or that contains the smell.
+     b. A clear and exhaustive explanation of WHY it is a vulnerability in this context.
    - If a snippet is NOT vulnerable, you don't need to mention it.
    - If, after analyzing all provided snippets, you find NO vulnerabilities, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
 
