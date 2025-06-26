@@ -22,7 +22,7 @@ IGNORE_PATH_FRAGMENTS = {os.path.join('src', 'test')}
 IGNORE_FILES = {'mvnw', 'Dockerfile',  'pom.xml'}
 # Files to ignore based on suffix (for DTO, Entity, etc.)
 IGNORE_FILENAME_SUFFIXES = {
-    'DTO.java', 'Entity.java', 'Event.java', 
+    'DTO.java', 'Entity.java', 'Event.java',
     'Request.java', 'Response.java', 'Exception.java'
 }
 
@@ -40,7 +40,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # LLM model loading
 try:
     llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-pro", 
+        model="gemini-1.5-pro",
         temperature=0.1,
         max_tokens=8192 # Maximum tokens for the generated *response*
     )
@@ -64,6 +64,7 @@ LOADER_MAPPING = {
     ".json": (TextLoader, {"encoding": "utf-8"}),
     ".properties": (TextLoader, {"encoding": "utf-8"}),
     ".yml": (TextLoader, {"encoding": "utf-8"}),
+    ".yaml": (TextLoader, {"encoding": "utf-8"}),
     ".gandle": (TextLoader, {"encoding": "utf-8"})
 }
 
@@ -101,26 +102,57 @@ def load_folder_path_documents(directory: str) -> list[Document]:
             if any(filename.endswith(suffix) for suffix in IGNORE_FILENAME_SUFFIXES):
                 print(f"Ignoring by suffix: {os.path.join(root, filename)}")
                 continue
-            
-            # Check to ignore unmapped extensions
+
             ext = os.path.splitext(filename)[-1].lower() if os.path.splitext(filename)[-1] else filename.lower()
             if ext in LOADER_MAPPING:
                 file_path = os.path.join(root, filename)
                 loader_class, loader_kwargs = LOADER_MAPPING[ext]
-                print(f"Upload: {file_path} (type: {ext})")
+                # print(f"Upload: {file_path} (type: {ext})") # Verbose, can be commented out
                 try:
                     loader = loader_class(file_path, **loader_kwargs)
                     docs = loader.load()
                     if docs:
-                        # Add the full path as 'source' for clarity
                         for doc in docs:
-                            doc.metadata["source"] = file_path 
+                            doc.metadata["source"] = file_path
                         all_documents.extend(docs)
                 except Exception as e:
                     print(f"Error while loading {file_path}: {e}")
 
     print(f"Total documents uploaded by {directory}: {len(all_documents)}\n")
     return all_documents
+
+# NUOVA FUNZIONE: Carica solo i file di orchestrazione dalla root del progetto
+def load_orchestration_files(base_directory: str) -> list[Document]:
+    """
+    Loads only orchestration files (docker-compose*.yml, kubernetes.yml, etc.)
+    from the project's root directory.
+    """
+    orchestration_documents = []
+    # Assicurati che il file principale sia prima, per dare priorità logica
+    orchestration_filenames = ['docker-compose.yml', 'docker-compose-common.yml', 'kubernetes.yml']
+    print(f"Searching for orchestration files in: {base_directory}")
+
+    # Carica prima il file principale se esiste
+    for filename in orchestration_filenames:
+        if os.path.exists(os.path.join(base_directory, filename)):
+            file_path = os.path.join(base_directory, filename)
+            ext = os.path.splitext(filename)[-1].lower()
+            if ext in LOADER_MAPPING:
+                loader_class, loader_kwargs = LOADER_MAPPING[ext]
+                print(f"Loading orchestration file: {file_path}")
+                try:
+                    loader = loader_class(file_path, **loader_kwargs)
+                    docs = loader.load()
+                    if docs:
+                        for doc in docs:
+                            doc.metadata["source"] = file_path
+                        orchestration_documents.extend(docs)
+                except Exception as e:
+                    print(f"Error loading orchestration file {file_path}: {e}")
+
+    print(f"Total orchestration documents loaded: {len(orchestration_documents)}")
+    return orchestration_documents
+
 
 def load_single_file(file_path: str) -> list[Document]:
     all_documents = []
@@ -155,30 +187,32 @@ def load_single_file(file_path: str) -> list[Document]:
 
     return all_documents
 
-# Server to chunk code based on its language
+# MODIFICA: Rimosso Language.YAML
 def get_code_chunks(code_documents: list[Document]) -> list[Document]:
     print("Splitting source code into manageable chunks...")
     all_chunks = []
-    # Mapping extensions to language type for the splitter
     language_map = {
         ".java": Language.JAVA,
         ".js": Language.JS,
         ".html": Language.HTML,
         ".scala": Language.SCALA
+        # .yml rimosso per evitare l'AttributeError
     }
-    
-    # Default splitter for unmapped files (e.g. Dockerfile, .vue, .txt)
+
     default_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
 
     for doc in tqdm(code_documents, desc="Splitting source code"):
         ext = os.path.splitext(doc.metadata["source"])[-1].lower()
         language = language_map.get(ext)
-        
+
         if language:
-            splitter = RecursiveCharacterTextSplitter.from_language(language=language, chunk_size=1000, chunk_overlap=150)
-            chunks = splitter.split_documents([doc])
+            try:
+                splitter = RecursiveCharacterTextSplitter.from_language(language=language, chunk_size=1000, chunk_overlap=150)
+                chunks = splitter.split_documents([doc])
+            except:
+                chunks = default_splitter.split_documents([doc])
         else:
-             # Use default splitter for Dockerfile, Vue, etc.
+            # Il default splitter gestirà tutti gli altri file, inclusi i .yml
             chunks = default_splitter.split_documents([doc])
         all_chunks.extend(chunks)
 
@@ -195,12 +229,16 @@ def extract_services_from_llm_output(answer: str) -> list[str]:
             in_service_section = True
             continue
         if in_service_section:
-            if line.strip().startswith("-"):
-                service_name = line.strip().lstrip("-").strip()
+            content = line.strip()
+            if content.startswith("-"):
+                service_name = content.lstrip("-").strip()
                 services.append(service_name)
-            elif line.strip() == "":
-                break 
+            elif "[]" in content:
+                return []
+            elif content == "" and services:
+                break
     return services
+
 
 print("--------------------Initialization embeddings in progress--------------------")
 try:
@@ -211,7 +249,6 @@ except Exception as e:
 
 print("=============================================================================")
 
-# New prompt, can be improved
 prompt_template_str = """Instructions:
 1. You are an expert Architectural Smell auditor. Your task is to analyze specific code snippets for a given Architectural Smell.
 2. The 'Smell Definition' provides the official description and remediation strategies for the Architectural vulnerability.
@@ -240,13 +277,11 @@ prompt_template_str = """Instructions:
 
 Answer (in the same language as the Question):"""
 
-# Actual prompt creation
 prompt_template = PromptTemplate(
     input_variables=["smell_definition", "positive_examples", "additional_folder_context"],
     template=prompt_template_str
 )
 
-# Function for counting prompt tokens
 def count_tokens_for_llm_input(text_input: str, llm_instance: ChatGoogleGenerativeAI) -> int:
     try:
         return llm_instance.get_num_tokens(text_input)
@@ -255,147 +290,120 @@ def count_tokens_for_llm_input(text_input: str, llm_instance: ChatGoogleGenerati
         return -1
 
 def analyze_services_individually(smell_data, base_folder_path, user_query):
-    """
-    Executes the RAG analysis by iterating over each microservice found in the base path.
-    """
-    # 1. Identify service folders
-    try:
-        service_folders = [f for f in os.listdir(base_folder_path) if os.path.isdir(os.path.join(base_folder_path, f))]
-        # Filter out irrelevant folders like .git, etc.
-        service_folders = [f for f in service_folders if not f.startswith('.') and f not in ['kubernetes', 'knowledge_base']]
-        if not service_folders:
-            print(f"No service folders found in '{base_folder_path}'. Make sure the path contains the microservice folders.")
-            return
-        print(f"Found {len(service_folders)} services to analyze: {service_folders}")
-    except Exception as e:
-        print(f"Error reading service folders from '{base_folder_path}': {e}")
-        return
-
-    all_retrieved_snippets_from_all_services = []
-    processed_content = set()
-    
-    # K snippets to retrieve for EACH service.
-    k_per_service = 5
-
-    # 2. Iterate over each service
-    for service_name in tqdm(service_folders, desc="Analyzing services"):
-        service_path = os.path.join(base_folder_path, service_name)
-        print(f"\n--- Analyzing service: {service_name} ---")
-
-        # 3. Load and split documents ONLY for the current service
-        source_code_docs = load_folder_path_documents(service_path)
-        if not source_code_docs:
-            print(f"No source code documents found for service '{service_name}'.")
-            continue
-            
-        code_chunks = get_code_chunks(source_code_docs)
-        if not code_chunks:
-            print(f"Unable to split source code into chunks for service '{service_name}'.")
-            continue
-
-        # 4. Create a TEMPORARY and ISOLATED vector store for the current service
-        print(f"Creating temporary vector store for '{service_name}'...")
-        # NOTE: from_documents is more direct if you don't need to manage batches manually
-        service_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
-        print(f"Vector store for '{service_name}' created successfully.")
-
-
-        # 5. Perform similarity search on this isolated vector store
-        search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
-        if not search_queries:
-            print("Warning: No 'negative_example' found in the KB for this smell. The analysis may be inaccurate.")
-            continue
-        search_query_str = "\n".join(search_queries)
-
-        print(f"Searching for {k_per_service} suspicious snippets for service '{service_name}'...")
-        retrieved_for_service = service_vectorstore.similarity_search(
-            query=search_query_str,
-            k=k_per_service
-        )
-        
-        print(f"Retrieved {len(retrieved_for_service)} snippets for service '{service_name}'.")
-
-        # Add snippets to the global list, avoiding duplicate content
-        for snippet in retrieved_for_service:
-            if snippet.page_content not in processed_content:
-                all_retrieved_snippets_from_all_services.append(snippet)
-                processed_content.add(snippet.page_content)
-    try:
-        all_entries = os.listdir(base_folder_path)
-        top_level_files = [f for f in all_entries if os.path.isfile(os.path.join(base_folder_path, f))]
-
-        # Filter only supported files
-        supported_files = []
-        for f in top_level_files:
-            ext = os.path.splitext(f)[-1].lower()
-            if ext in LOADER_MAPPING:
-                supported_files.append(f)
-
-        if not supported_files:
-            print("No supported files found in the root directory.")
-            return
-
-        print(f"Found {len(supported_files)} supported files in the root: {supported_files}")
-
-        for filename in tqdm(supported_files, desc="Analyzing top-level files"):
-            file_path = os.path.join(base_folder_path, filename)
-            print(f"\nAnalyzing file: {file_path}")
-
-            try:
-                docs = load_single_file(file_path)
-                if not docs:
-                    print(f"No document loaded from {filename}")
-                    continue
-
-                code_chunks = get_code_chunks(docs)
-                if not code_chunks:
-                    print(f"No chunk generated from {filename}")
-                    continue
-
-                print(f"Creating vector store for '{filename}'...")
-                file_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
-
-                search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
-                if not search_queries:
-                    print("No 'negative_example' in the KB. Search skipped.")
-                    continue
-
-                search_query_str = "\n".join(search_queries)
-                retrieved_snippets = file_vectorstore.similarity_search(
-                    query=search_query_str,
-                    k=k_per_service
-                )
-
-                print(f"Found {len(retrieved_snippets)} suspicious snippets in '{filename}'.")
-
-                for snippet in retrieved_snippets:
-                    if snippet.page_content not in processed_content:
-                        all_retrieved_snippets_from_all_services.append(snippet)
-                        processed_content.add(snippet.page_content)
-
-            except Exception as e:
-                print(f"Error while processing file '{filename}': {e}")
-
-    except Exception as e:
-        print(f"Error reading files in '{base_folder_path}': {e}")
-    # --- End of new loop ---
-
-    if not all_retrieved_snippets_from_all_services:
-        print("\nNo code snippets similar to the examples were found in the services. The code is probably clean for this smell.")
-        return
-
-    print(f"\n_Found a total of {len(all_retrieved_snippets_from_all_services)} potentially suspicious code snippets to analyze.")
-
-    # The rest of the code to format the prompt and call the LLM remains almost unchanged
     smell_definition = f"Description: {smell_data['brief_description']}"
     positive_examples = "\n\n".join(
         [f"--- Positive Example ({ex['language']}) ---\n{ex['positive_example']}\nExplanation: {ex['explanation']}" for ex in smell_data.get('positive', [])]
     ) if 'positive' in smell_data else "No positive examples available."
 
-    code_context_for_prompt = "\n\n".join(
-        [f"--- Snippet from file: {doc.metadata.get('source', 'Unknown')} ---\n```\n{doc.page_content}\n```" for doc in all_retrieved_snippets_from_all_services]
-    )
-    
+    code_context_for_prompt = "No context available."
+
+    if user_query.lower() == 'no api gateway':
+        print("\n=== Special analysis path for 'No API Gateway' ===")
+        orchestration_docs = load_orchestration_files(base_folder_path)
+
+        if not orchestration_docs:
+            print("\nNo orchestration files (docker-compose.yml, etc.) found. Cannot analyze for 'No API Gateway' smell.")
+            return
+
+        code_context_for_prompt = "\n\n".join(
+            [f"--- Content from file: {doc.metadata.get('source', 'Unknown')} ---\n```yaml\n{doc.page_content}\n```" for doc in orchestration_docs]
+        )
+
+    else:
+        print("\n=== Standard analysis path for source code smells ===")
+        try:
+            service_folders = [f for f in os.listdir(base_folder_path) if os.path.isdir(os.path.join(base_folder_path, f))]
+            service_folders = [f for f in service_folders if not f.startswith('.') and f not in ['kubernetes', 'knowledge_base']]
+            if not service_folders:
+                print(f"No service folders found in '{base_folder_path}'. Make sure the path contains the microservice folders.")
+                return
+            print(f"Found {len(service_folders)} services to analyze: {service_folders}")
+        except Exception as e:
+            print(f"Error reading service folders from '{base_folder_path}': {e}")
+            return
+
+        all_retrieved_snippets_from_all_services = []
+        processed_content = set()
+        k_per_service = 5
+
+        for service_name in tqdm(service_folders, desc="Analyzing services"):
+            service_path = os.path.join(base_folder_path, service_name)
+            print(f"\n--- Analyzing service: {service_name} ---")
+
+            source_code_docs = load_folder_path_documents(service_path)
+            if not source_code_docs:
+                print(f"No source code documents found for service '{service_name}'.")
+                continue
+
+            code_chunks = get_code_chunks(source_code_docs)
+            if not code_chunks:
+                print(f"Unable to split source code into chunks for service '{service_name}'.")
+                continue
+
+            print(f"Creating temporary vector store for '{service_name}'...")
+            service_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
+            print(f"Vector store for '{service_name}' created successfully.")
+
+            search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
+            if not search_queries:
+                print("Warning: No 'negative_example' found in the KB for this smell. The analysis may be inaccurate.")
+                continue
+            search_query_str = "\n".join(search_queries)
+
+            print(f"Searching for {k_per_service} suspicious snippets for service '{service_name}'...")
+            retrieved_for_service = service_vectorstore.similarity_search(query=search_query_str, k=k_per_service)
+
+            print(f"Retrieved {len(retrieved_for_service)} snippets for service '{service_name}'.")
+
+            for snippet in retrieved_for_service:
+                if snippet.page_content not in processed_content:
+                    all_retrieved_snippets_from_all_services.append(snippet)
+                    processed_content.add(snippet.page_content)
+
+        # Analisi dei file nella root (se necessario per altri smell)
+        # Questa logica è stata semplificata e resa più robusta
+        try:
+            all_entries = os.listdir(base_folder_path)
+            top_level_files = [f for f in all_entries if os.path.isfile(os.path.join(base_folder_path, f))]
+
+            # Filter only supported files
+            supported_files = []
+            for f in top_level_files:
+                ext = os.path.splitext(f)[-1].lower() if os.path.splitext(f)[-1] else f.lower()
+                if ext in LOADER_MAPPING:
+                    supported_files.append(f)
+
+            if supported_files:
+                print(f"Found {len(supported_files)} supported files in the root: {supported_files}")
+                for filename in tqdm(supported_files, desc="Analyzing top-level files"):
+                    file_path = os.path.join(base_folder_path, filename)
+                    docs = load_single_file(file_path)
+                    if not docs: continue
+                    code_chunks = get_code_chunks(docs)
+                    if not code_chunks: continue
+
+                    file_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
+                    search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
+                    if not search_queries: continue
+
+                    retrieved_snippets = file_vectorstore.similarity_search(query="\n".join(search_queries), k=k_per_service)
+                    for snippet in retrieved_snippets:
+                        if snippet.page_content not in processed_content:
+                            all_retrieved_snippets_from_all_services.append(snippet)
+                            processed_content.add(snippet.page_content)
+        except Exception as e:
+            print(f"Error reading top-level files in '{base_folder_path}': {e}")
+
+
+        if not all_retrieved_snippets_from_all_services:
+            print("\nNo code snippets similar to the examples were found. The code is probably clean for this smell.")
+            return
+
+        print(f"\nFound a total of {len(all_retrieved_snippets_from_all_services)} potentially suspicious code snippets to analyze.")
+        code_context_for_prompt = "\n\n".join(
+            [f"--- Snippet from file: {doc.metadata.get('source', 'Unknown')} ---\n```\n{doc.page_content}\n```" for doc in all_retrieved_snippets_from_all_services]
+        )
+
     final_prompt_string = prompt_template.format(
         smell_definition=smell_definition,
         positive_examples=positive_examples,
@@ -403,12 +411,12 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
     ).replace("[Smell Name]", user_query)
 
     print("\n--- Final Prompt (before sending to LLM) ---")
-    print(final_prompt_string) # Uncomment for debug
-    print(f"(Prompt length: {len(final_prompt_string)} characters)")
+    print(final_prompt_string)
+    # print(f"(Prompt length: {len(final_prompt_string)} characters)")
 
-    token_count = count_tokens_for_llm_input(final_prompt_string, llm)
-    if token_count != -1:
-        print(f"Estimated number of tokens for LLM input: {token_count}")
+    # token_count = count_tokens_for_llm_input(final_prompt_string, llm)
+    # if token_count != -1:
+    #     print(f"Estimated number of tokens for LLM input: {token_count}")
 
     print("\nRequest to LLM in progress...")
     try:
@@ -418,28 +426,25 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         print(answer)
     except Exception as e:
         print(f"Error while invoking the LLM: {e}")
-        return # Exit the function in case of error
+        return
 
     # Evaluation logic
     ground_truth = {
-        "customers-service": ["no api gateway"],
-        "accounts-service": ["no api gateway"],
-        "transactions-service": ["no api gateway"],       #check if WSI is correct
-        "customers-view-service": ["shared persistence", "no api gateway"],
-        "accounts-view-service": ["shared persistence", "no api gateway"],
-        "api-gateway-service": ["shared persistence", "endpoint based service interaction"]   
-        #the smell is found in cummon-auth used by api gateway service
-        #the gateway depends on fragile addresses (application.properties)
+        "customers-service": ["endpoint based service interaction"],
+        "accounts-service": ["endpoint based service interaction"],
+        "transactions-service": ["endpoint based service interaction"],
+        "customers-view-service": ["shared persistence", "endpoint based service interaction"],
+        "accounts-view-service": ["shared persistence", "endpoint based service interaction"],
+        "api-gateway-service": []
     }
-
 
     smell_name = user_query.lower()
     predicted_services = extract_services_from_llm_output(answer)
     print("\n\n>>> Predicted services:", predicted_services)
 
-    predicted = {(os.path.basename(s), smell_name) for s in predicted_services}
+    predicted = {(s.strip(), smell_name) for s in predicted_services}
     true_labels = {(s, smell_name) for s, smells in ground_truth.items() if smell_name in smells}
-    
+
     print(">>> Predicted Set:", predicted)
     print(">>> Ground Truth Set:", true_labels)
 
@@ -463,16 +468,13 @@ while True:
         print("Exiting the program.")
         break
 
-    # Load the smell
     smell_data = load_smell_data(user_query, knowledge_base_dir)
     if not smell_data:
-        continue # Ask for new input if the smell does not exist
+        continue
 
-    # Input of the base folder containing the microservices to analyze
     folder_path_input = input("Specify the path of the base folder containing the microservices to analyze: ").strip()
     if not (folder_path_input and os.path.isdir(folder_path_input)):
         print("Invalid or empty folder path. Try again.")
         continue
 
-    # Call the new analysis function that handles the whole process
     analyze_services_individually(smell_data, folder_path_input, user_query)
