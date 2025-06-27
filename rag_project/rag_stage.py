@@ -254,25 +254,16 @@ SMELL_INSTRUCTIONS = {
     "no api gateway": """
     1) Enumerate defined services** : Read the keys under `services:` in the main `docker-compose.yml`; these are the actually running instances.  
     2) Identify the Gateway candidate**  :
-        • From those services, find any that:  
+        - From those services, find any that:  
             1. Define or inherit a `ports:` section (e.g. `8080:8080`)  
             2. Have a name or alias containing “gateway” (case-insensitive) **or** extend a service with a `build:` directive in the common file.  
-        • If you find **exactly one**, assume it’s the API Gateway.  
-        • If you find **more than one**, disambiguate by checking which candidate has environment variables pointing to all other downstream services (e.g. `*_HOST`).  
+        - If you find **exactly one**, assume it’s the API Gateway.  
+        - If you find **more than one**, disambiguate by checking which candidate has environment variables pointing to all other downstream services (e.g. `*_HOST`).  
     3) Report absence of a gateway**  :
-        • If **zero** services match the gateway criteria → return `["no api gateway"]`.  
-        • Otherwise → return `[]`. """,
+        - If **zero** services match the gateway criteria → return `["no api gateway"]`.  
+        - Otherwise → return `[]`. """,
 
-    "shared persistence": """Your analysis for the 'Shared Persistence' smell must be both precise and generic. To report a service as exhibiting this smell, follow these STEPS for each service **exactly as the service key appears** in the orchestration file (e.g., `customers-view-service`, not `customersviewservice`):
-    1. **Normalize and Identify Services** - Read service blocks by their exact keys in the compose or manifest (hyphens and casing preserved).
-        - Ignore any images or utility containers (e.g., CDC service images) that do not have corresponding source-code directories.
-    2. **Detect Shared Database Configuration** - In the orchestration config (e.g., `docker-compose.yml`), find two or more services whose connection strings (host, port, database/schema name) are **identical**.
-        - Match the connection settings by literal string equality on URL/credentials.
-    3. **Confirm Active Database Usage in Code** - For each candidate service, inspect its own source folder (matching the service key) for:
-        - Imports of a database client or ORM.
-        - Repository/DAO classes or direct query execution.
-    - Only flag the service if both the shared config **and** code-level DB interactions exist within that same service.
-    **Important:** Services with shared config but no code usage must NOT be reported. Services whose only shared store is the primary event store (e.g., MySQL for event sourcing) should be excluded—report only when the same database instance supports multiple bounded contexts directly."""  ,
+    "shared persistence": """Your analysis for the 'Shared Persistence' smell must be precise. """  ,
 
     "endpoint based service interaction": """Your task is to identify services that are called using static, hardcoded endpoints, which is a sign of tight coupling. The evidence for this smell is often found in API Gateway configuration files, but the smell itself belongs to the services being called, not the gateway.
     Follow these steps precisely:
