@@ -429,13 +429,22 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         return
 
     # Evaluation logic
+    #ground_truth = {
+    #    "customers-service": ["endpoint based service interaction"],
+    #    "accounts-service": ["endpoint based service interaction"],
+    #    "transactions-service": ["endpoint based service interaction"],
+    #    "customers-view-service": ["shared persistence", "endpoint based service interaction"],
+    #    "accounts-view-service": ["shared persistence", "endpoint based service interaction"],
+    #    "api-gateway-service": []
+    #}
+
     ground_truth = {
-        "customers-service": ["endpoint based service interaction"],
-        "accounts-service": ["endpoint based service interaction"],
-        "transactions-service": ["endpoint based service interaction"],
-        "customers-view-service": ["shared persistence", "endpoint based service interaction"],
-        "accounts-view-service": ["shared persistence", "endpoint based service interaction"],
-        "api-gateway-service": []
+        "booking-service": ["shared persistence", "wobbly service interaction", "endpoint based service interaction"],
+        "cinema-catalog-service": ["shared persistence", "endpoint based service interaction"],
+        "movies-service": ["shared persistence", "endpoint based service interaction"],
+        "notification-service": ["shared persistence"],
+        "payment-service": ["shared persistence", "endpoint based service interaction"],
+        "api-gateway": []
     }
 
     smell_name = user_query.lower()
