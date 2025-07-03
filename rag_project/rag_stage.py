@@ -121,36 +121,6 @@ def load_folder_path_documents(directory: str) -> list[Document]:
     print(f"Total documents uploaded by {directory}: {len(all_documents)}\n")
     return all_documents
 
-def load_orchestration_files(base_directory: str) -> list[Document]:
-    """
-    Loads only orchestration files (docker-compose*.yml, kubernetes.yml, etc.)
-    from the project's root directory.
-    """
-    orchestration_documents = []
-    orchestration_filenames = ['docker-compose.yml', 'docker-compose-common.yml', 'kubernetes.yml']
-    print(f"Searching for orchestration files in: {base_directory}")
-
-    for filename in orchestration_filenames:
-        if os.path.exists(os.path.join(base_directory, filename)):
-            file_path = os.path.join(base_directory, filename)
-            ext = os.path.splitext(filename)[-1].lower()
-            if ext in LOADER_MAPPING:
-                loader_class, loader_kwargs = LOADER_MAPPING[ext]
-                print(f"Loading orchestration file: {file_path}")
-                try:
-                    loader = loader_class(file_path, **loader_kwargs)
-                    docs = loader.load()
-                    if docs:
-                        for doc in docs:
-                            doc.metadata["source"] = file_path
-                        orchestration_documents.extend(docs)
-                except Exception as e:
-                    print(f"Error loading orchestration file {file_path}: {e}")
-
-    print(f"Total orchestration documents loaded: {len(orchestration_documents)}")
-    return orchestration_documents
-
-
 def load_single_file(file_path: str) -> list[Document]:
     all_documents = []
 
@@ -213,37 +183,6 @@ def get_code_chunks(code_documents: list[Document]) -> list[Document]:
 
     print(f"Source code split into {len(all_chunks)} chunks.")
     return all_chunks
-
-def find_exposed_ports(base_directory: str) -> dict:
-    """
-    Scans service subfolders for application.properties/.yml files
-    and returns a dictionary of services and their exposed ports.
-    """
-    exposed_services = {}
-    try:
-        service_folders = [f for f in os.listdir(base_directory) if os.path.isdir(os.path.join(base_directory, f))]
-        service_folders = [f for f in service_folders if not f.startswith('.') and f not in IGNORE_DIRS]
-    except FileNotFoundError:
-        return {}
-
-    print(f"\nScanning for exposed ports in services: {service_folders}")
-    for service in service_folders:
-        for conf_file in ['application.properties', 'application.yml', 'application.yaml']:
-            config_path = os.path.join(base_directory, service, 'src', 'main', 'resources', conf_file)
-            if os.path.exists(config_path):
-                try:
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            if "server.port" in line:
-                                port = line.split(':')[-1].strip() if '.yml' in conf_file or '.yaml' in conf_file else line.split('=')[-1].strip()
-                                if port:
-                                    print(f"Found exposed port for '{service}': {port}")
-                                    exposed_services[service] = port
-                                    break # Port found, move to next service
-                except Exception as e:
-                    print(f"Warning: Could not read config file {config_path}: {e}")
-                break # Config file found, move to next service
-    return exposed_services
 
 def extract_services_from_llm_output(answer: str) -> list[str]:
     lines = answer.splitlines()
@@ -369,82 +308,54 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
     ) if 'positive' in smell_data else "No positive examples available."
 
     code_context_for_prompt = "No context available."
-
-    if user_query.lower() == 'no api gateway':
-        print("\n=== Special analysis path for 'No API Gateway' ===")
-        service_folders = [f for f in os.listdir(base_folder_path) if os.path.isdir(os.path.join(base_folder_path, f)) and not f.startswith('.') and f not in IGNORE_DIRS]
-        gateway_candidates = [s for s in service_folders if "gateway" in s.lower()]
-
-        if len(gateway_candidates) == 1:
-            print(f"\nFound a likely API Gateway by name: '{gateway_candidates[0]}'. Smell is likely not present.")
-            code_context_for_prompt = f"An API Gateway service named '{gateway_candidates[0]}' was found. This strongly suggests the project does not have the 'no api gateway' smell."
-        else:
-            print("\nNo service found with 'gateway' in its name. Proceeding with configuration analysis.")
-            orchestration_docs = load_orchestration_files(base_folder_path)
-            exposed_ports_from_config = find_exposed_ports(base_folder_path)
-            
-            context_parts = []
-            if orchestration_docs:
-                context_parts.append("--- Orchestration Files Context ---\n" + "\n\n".join([f"Content from file: {doc.metadata.get('source', 'Unknown')} ---\n```yaml\n{doc.page_content}\n```" for doc in orchestration_docs]))
-            if exposed_ports_from_config:
-                context_parts.append(f"--- Exposed Ports from application.properties/yml ---\nThe following services appear to expose a public port directly:\n{json.dumps(exposed_ports_from_config, indent=2)}")
-            
-            if not context_parts:
-                print("\nCRITICAL: No orchestration files or config files with 'server.port' found. Cannot determine architecture.")
-                code_context_for_prompt = f"No configuration files (docker-compose, kubernetes, application.properties/yml with server.port) could be found. It is impossible to determine if an API Gateway exists. The user suspects the smell is present. The service folders are: {service_folders}"
-            else:
-                code_context_for_prompt = "\n\n".join(context_parts)
-
-    else:
-        print("\n=== Standard analysis path for source code smells ===")
-        try:
-            service_folders = [f for f in os.listdir(base_folder_path) if os.path.isdir(os.path.join(base_folder_path, f))]
-            service_folders = [f for f in service_folders if not f.startswith('.') and f not in ['kubernetes', 'knowledge_base']]
-            if not service_folders:
-                print(f"No service folders found in '{base_folder_path}'. Make sure the path contains the microservice folders.")
-                return
-            print(f"Found {len(service_folders)} services to analyze: {service_folders}")
-        except Exception as e:
-            print(f"Error reading service folders from '{base_folder_path}': {e}")
+    try:
+        service_folders = [f for f in os.listdir(base_folder_path) if os.path.isdir(os.path.join(base_folder_path, f))]
+        service_folders = [f for f in service_folders if not f.startswith('.') and f not in ['kubernetes', 'knowledge_base']]
+        if not service_folders:
+            print(f"No service folders found in '{base_folder_path}'. Make sure the path contains the microservice folders.")
             return
+        print(f"Found {len(service_folders)} services to analyze: {service_folders}")
+    except Exception as e:
+        print(f"Error reading service folders from '{base_folder_path}': {e}")
+        return
 
-        all_retrieved_snippets_from_all_services = []
-        processed_content = set()
-        k_per_service = 5
+    all_retrieved_snippets_from_all_services = []
+    processed_content = set()
+    k_per_service = 5
 
-        for service_name in tqdm(service_folders, desc="Analyzing services"):
-            service_path = os.path.join(base_folder_path, service_name)
-            print(f"\n--- Analyzing service: {service_name} ---")
+    for service_name in tqdm(service_folders, desc="Analyzing services"):
+        service_path = os.path.join(base_folder_path, service_name)
+        print(f"\n--- Analyzing service: {service_name} ---")
 
-            source_code_docs = load_folder_path_documents(service_path)
-            if not source_code_docs:
-                print(f"No source code documents found for service '{service_name}'.")
-                continue
+        source_code_docs = load_folder_path_documents(service_path)
+        if not source_code_docs:
+            print(f"No source code documents found for service '{service_name}'.")
+            continue
 
-            code_chunks = get_code_chunks(source_code_docs)
-            if not code_chunks:
-                print(f"Unable to split source code into chunks for service '{service_name}'.")
-                continue
+        code_chunks = get_code_chunks(source_code_docs)
+        if not code_chunks:
+            print(f"Unable to split source code into chunks for service '{service_name}'.")
+            continue
 
-            print(f"Creating temporary vector store for '{service_name}'...")
-            service_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
-            print(f"Vector store for '{service_name}' created successfully.")
+        print(f"Creating temporary vector store for '{service_name}'...")
+        service_vectorstore = FAISS.from_documents(code_chunks, embeddings_model)
+        print(f"Vector store for '{service_name}' created successfully.")
 
-            search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
-            if not search_queries:
-                print("Warning: No 'negative_example' found in the KB for this smell. The analysis may be inaccurate.")
-                continue
-            search_query_str = "\n".join(search_queries)
+        search_queries = [ex['negative_example'] for ex in smell_data.get('manifestations', [])]
+        if not search_queries:
+            print("Warning: No 'negative_example' found in the KB for this smell. The analysis may be inaccurate.")
+            continue
+        search_query_str = "\n".join(search_queries)
 
-            print(f"Searching for {k_per_service} suspicious snippets for service '{service_name}'...")
-            retrieved_for_service = service_vectorstore.similarity_search(query=search_query_str, k=k_per_service)
+        print(f"Searching for {k_per_service} suspicious snippets for service '{service_name}'...")
+        retrieved_for_service = service_vectorstore.similarity_search(query=search_query_str, k=k_per_service)
 
-            print(f"Retrieved {len(retrieved_for_service)} snippets for service '{service_name}'.")
+        print(f"Retrieved {len(retrieved_for_service)} snippets for service '{service_name}'.")
 
-            for snippet in retrieved_for_service:
-                if snippet.page_content not in processed_content:
-                    all_retrieved_snippets_from_all_services.append(snippet)
-                    processed_content.add(snippet.page_content)
+        for snippet in retrieved_for_service:
+            if snippet.page_content not in processed_content:
+                all_retrieved_snippets_from_all_services.append(snippet)
+                processed_content.add(snippet.page_content)
 
         # Analisi dei file nella root (se necessario per altri smell)
         # Questa logica è stata semplificata e resa più robusta
