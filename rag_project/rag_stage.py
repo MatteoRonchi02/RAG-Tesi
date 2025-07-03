@@ -121,18 +121,15 @@ def load_folder_path_documents(directory: str) -> list[Document]:
     print(f"Total documents uploaded by {directory}: {len(all_documents)}\n")
     return all_documents
 
-# NUOVA FUNZIONE: Carica solo i file di orchestrazione dalla root del progetto
 def load_orchestration_files(base_directory: str) -> list[Document]:
     """
     Loads only orchestration files (docker-compose*.yml, kubernetes.yml, etc.)
     from the project's root directory.
     """
     orchestration_documents = []
-    # Assicurati che il file principale sia prima, per dare priorità logica
     orchestration_filenames = ['docker-compose.yml', 'docker-compose-common.yml', 'kubernetes.yml']
     print(f"Searching for orchestration files in: {base_directory}")
 
-    # Carica prima il file principale se esiste
     for filename in orchestration_filenames:
         if os.path.exists(os.path.join(base_directory, filename)):
             file_path = os.path.join(base_directory, filename)
@@ -187,7 +184,6 @@ def load_single_file(file_path: str) -> list[Document]:
 
     return all_documents
 
-# MODIFICA: Rimosso Language.YAML
 def get_code_chunks(code_documents: list[Document]) -> list[Document]:
     print("Splitting source code into manageable chunks...")
     all_chunks = []
@@ -196,7 +192,6 @@ def get_code_chunks(code_documents: list[Document]) -> list[Document]:
         ".js": Language.JS,
         ".html": Language.HTML,
         ".scala": Language.SCALA
-        # .yml rimosso per evitare l'AttributeError
     }
 
     default_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
@@ -218,6 +213,37 @@ def get_code_chunks(code_documents: list[Document]) -> list[Document]:
 
     print(f"Source code split into {len(all_chunks)} chunks.")
     return all_chunks
+
+def find_exposed_ports(base_directory: str) -> dict:
+    """
+    Scans service subfolders for application.properties/.yml files
+    and returns a dictionary of services and their exposed ports.
+    """
+    exposed_services = {}
+    try:
+        service_folders = [f for f in os.listdir(base_directory) if os.path.isdir(os.path.join(base_directory, f))]
+        service_folders = [f for f in service_folders if not f.startswith('.') and f not in IGNORE_DIRS]
+    except FileNotFoundError:
+        return {}
+
+    print(f"\nScanning for exposed ports in services: {service_folders}")
+    for service in service_folders:
+        for conf_file in ['application.properties', 'application.yml', 'application.yaml']:
+            config_path = os.path.join(base_directory, service, 'src', 'main', 'resources', conf_file)
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            if "server.port" in line:
+                                port = line.split(':')[-1].strip() if '.yml' in conf_file or '.yaml' in conf_file else line.split('=')[-1].strip()
+                                if port:
+                                    print(f"Found exposed port for '{service}': {port}")
+                                    exposed_services[service] = port
+                                    break # Port found, move to next service
+                except Exception as e:
+                    print(f"Warning: Could not read config file {config_path}: {e}")
+                break # Config file found, move to next service
+    return exposed_services
 
 def extract_services_from_llm_output(answer: str) -> list[str]:
     lines = answer.splitlines()
@@ -252,17 +278,20 @@ print("=========================================================================
 # MODIFICA: Istruzioni per "no api gateway" completamente riscritte
 SMELL_INSTRUCTIONS = {
     "no api gateway": """
-    1) Enumerate defined services** : Read the keys under `services:` in the main `docker-compose.yml`; these are the actually running instances.  
-    2) Identify the Gateway candidate**  :
-        - From those services, find any that:  
-            1. Define or inherit a `ports:` section (e.g. `8080:8080`)  
-            2. Have a name or alias containing “gateway” (case-insensitive) **or** extend a service with a `build:` directive in the common file.  
-        - If you find **exactly one**, assume it’s the API Gateway.  
-        - If you find **more than one**, disambiguate by checking which candidate has environment variables pointing to all other downstream services (e.g. `*_HOST`).  
-    3) Report absence of a gateway**  :
-        - If **zero** services match the gateway criteria → return `["no api gateway"]`.  
-        - Otherwise → return `[]`. """,
+    Your task is to determine if the 'No API Gateway' smell is present. A project has this smell if multiple microservices are exposed directly to the outside world, instead of routing traffic through a single entry point.
+    Analyze the provided context, which may contain:
+    1. The content of orchestration files like `docker-compose.yml`.
+    2. A list of services and the ports they expose, extracted from `application.properties` or `.yml` files.
+    3. The names of the service folders.
 
+    Follow these rules:
+    1.  **Gateway by Name**: If the context shows a service named 'api-gateway', 'gateway-service', or similar, it's highly likely that the smell is NOT present.
+    2.  **Multiple Exposed Ports**: If the context shows that **more than one** service exposes a port (e.g., via `server.port` or docker `ports:`), and NONE of them is clearly a gateway, then the smell **IS PRESENT**.
+    3.  **Single Exposed Port**: If only one service exposes a port, it is acting as the de-facto gateway, so the smell is NOT present.
+    4.  **No Information**: If the context explicitly states that no configuration files were found to determine the architecture, you must report that the smell IS LIKELY PRESENT by default, as there's no evidence of a gateway.
+
+    Based on your analysis, list the names of all services that are exposed directly, which constitute the smell. If the smell is not present, return an empty list `[]`.
+    """,
     "shared persistence": """Your analysis for the 'Shared Persistence' smell must be precise. """  ,
 
     "endpoint based service interaction": """Your task is to identify services that are called using static, hardcoded endpoints, which is a sign of tight coupling. The evidence for this smell is often found in API Gateway configuration files, but the smell itself belongs to the services being called, not the gateway.
@@ -343,15 +372,28 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
 
     if user_query.lower() == 'no api gateway':
         print("\n=== Special analysis path for 'No API Gateway' ===")
-        orchestration_docs = load_orchestration_files(base_folder_path)
+        service_folders = [f for f in os.listdir(base_folder_path) if os.path.isdir(os.path.join(base_folder_path, f)) and not f.startswith('.') and f not in IGNORE_DIRS]
+        gateway_candidates = [s for s in service_folders if "gateway" in s.lower()]
 
-        if not orchestration_docs:
-            print("\nNo orchestration files (docker-compose.yml, etc.) found. Cannot analyze for 'No API Gateway' smell.")
-            return
-
-        code_context_for_prompt = "\n\n".join(
-            [f"--- Content from file: {doc.metadata.get('source', 'Unknown')} ---\n```yaml\n{doc.page_content}\n```" for doc in orchestration_docs]
-        )
+        if len(gateway_candidates) == 1:
+            print(f"\nFound a likely API Gateway by name: '{gateway_candidates[0]}'. Smell is likely not present.")
+            code_context_for_prompt = f"An API Gateway service named '{gateway_candidates[0]}' was found. This strongly suggests the project does not have the 'no api gateway' smell."
+        else:
+            print("\nNo service found with 'gateway' in its name. Proceeding with configuration analysis.")
+            orchestration_docs = load_orchestration_files(base_folder_path)
+            exposed_ports_from_config = find_exposed_ports(base_folder_path)
+            
+            context_parts = []
+            if orchestration_docs:
+                context_parts.append("--- Orchestration Files Context ---\n" + "\n\n".join([f"Content from file: {doc.metadata.get('source', 'Unknown')} ---\n```yaml\n{doc.page_content}\n```" for doc in orchestration_docs]))
+            if exposed_ports_from_config:
+                context_parts.append(f"--- Exposed Ports from application.properties/yml ---\nThe following services appear to expose a public port directly:\n{json.dumps(exposed_ports_from_config, indent=2)}")
+            
+            if not context_parts:
+                print("\nCRITICAL: No orchestration files or config files with 'server.port' found. Cannot determine architecture.")
+                code_context_for_prompt = f"No configuration files (docker-compose, kubernetes, application.properties/yml with server.port) could be found. It is impossible to determine if an API Gateway exists. The user suspects the smell is present. The service folders are: {service_folders}"
+            else:
+                code_context_for_prompt = "\n\n".join(context_parts)
 
     else:
         print("\n=== Standard analysis path for source code smells ===")
