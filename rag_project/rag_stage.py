@@ -215,27 +215,13 @@ except Exception as e:
 print("=============================================================================")
 
 prompt_template_str = """Instructions:
-1. You are an expert Architectural Smell auditor. Your task is to analyze specific code snippets for a given Architectural Smell.
-2. The 'Smell Definition' provides the official description and remediation strategies for the Architectural vulnerability.
-3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
-4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
-5. Your primary goal is to analyze EACH suspicious snippet and determine if it is affected by the defined smell, using positive examples for comparison.
-6. Structure your answer as follows:
+You are an expert architectural auditor.
+The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell. 
+Your goal is to analyze suspicious snippet and determine if it is affected by the defined smell.
+Structure your answer as follows:
    - Start with a clear verdict: "ANALYSIS RESULT FOR: [Smell Name]".
-   - Create a list that contains only services that contain Architectural smell, like this: "Analyzed services with Architectural smell: \n - name of service".
-   - For each analyzed file path, create a section, divided by a line of #.
-   - Under each file path, list the snippets that ARE VULNERABLE.
-   - For each vulnerable snippet, provide:
-     a. The line of code or block that contains the smell.
-     b. A clear explanation of WHY it is a vulnerability in this context.
-   - If a snippet is NOT vulnerable, you don't need to mention it.
-   - If, after analyzing all provided snippets, you find NO vulnerabilities, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
-
---- Smell Definition ---
-{smell_definition}
-
---- Positive Examples (without smell) ---
-{positive_examples}
+   - Create a list that contains only services that contain architectural smell, like this: "Analyzed services with Architectural smell: - name of service".
+   - Write the the path, snippet and explaination for the vulnerable snippet.
 
 --- Suspicious Code Snippets from Provided Folder ---
 {additional_folder_context}
@@ -243,7 +229,7 @@ prompt_template_str = """Instructions:
 Answer (in the same language as the Question):"""
 
 prompt_template = PromptTemplate(
-    input_variables=["smell_definition", "positive_examples", "additional_folder_context"],
+    input_variables=["additional_folder_context"],
     template=prompt_template_str
 )
 
@@ -255,11 +241,6 @@ def count_tokens_for_llm_input(text_input: str, llm_instance: ChatGoogleGenerati
         return -1
 
 def analyze_services_individually(smell_data, base_folder_path, user_query):
-    smell_definition = f"Description: {smell_data['brief_description']}"
-    positive_examples = "\n\n".join(
-        [f"--- Positive Example ({ex['language']}) ---\n{ex['positive_example']}\nExplanation: {ex['explanation']}" for ex in smell_data.get('positive', [])]
-    ) if 'positive' in smell_data else "No positive examples available."
-
     code_context_for_prompt = "No context available."
 
     try:
@@ -356,8 +337,6 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         )
 
     final_prompt_string = prompt_template.format(
-        smell_definition=smell_definition,
-        positive_examples=positive_examples,
         additional_folder_context=code_context_for_prompt
     ).replace("[Smell Name]", user_query)
 
@@ -380,16 +359,16 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         return
 
     # Evaluation logic
-    #ground_truth = {
-    #    "customers-service": ["endpoint based service interaction"],
-    #    "accounts-service": ["endpoint based service interaction"],
-    #    "transactions-service": ["endpoint based service interaction"],
-    #    "customers-view-service": ["shared persistence", "endpoint based service interaction"],
-    #    "accounts-view-service": ["shared persistence", "endpoint based service interaction"],
-    #    "api-gateway-service": []
-    #}
-
     ground_truth = {
+        "customers-service": ["endpoint based service interaction"],
+        "accounts-service": ["endpoint based service interaction"],
+        "transactions-service": ["endpoint based service interaction"],
+        "customers-view-service": ["shared persistence", "endpoint based service interaction"],
+        "accounts-view-service": ["shared persistence", "endpoint based service interaction"],
+        "api-gateway-service": []
+    }
+
+    ground_truth2 = {
         "booking-service": ["shared persistence", "wobbly service interaction", "endpoint based service interaction"],
         "cinema-catalog-service": ["shared persistence", "endpoint based service interaction"],
         "movies-service": ["shared persistence", "endpoint based service interaction"],
