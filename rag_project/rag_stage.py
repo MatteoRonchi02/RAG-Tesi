@@ -246,7 +246,7 @@ Do NOT flag:
 
 # Nuovo prompt, si può migliorare
 prompt_template_str = """Instructions:
-1. You are an expert security auditor. Your task is to analyze specific code snippets for a given [Smell name].
+1. You are an security software expert. Your task is to analyze specific code snippets for a given [Smell name].
 2. The 'Smell Definition' provides the official description and remediation strategies for the [Smell name] smell.
 3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
 4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
@@ -264,6 +264,7 @@ prompt_template_str = """Instructions:
    - For each vulnerable snippet, provide:
      a. The snippet of code or that contains the smell.
      b. A clear and exhaustive explanation of WHY it is a vulnerability in this context.
+     c. An actionable suggestions on how to refactor the code to resolve the security smell.
    - If a snippet is NOT vulnerable, you don't need to mention it.
    - If, after analyzing all provided snippets, you find NO vulnerabilities, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
 
