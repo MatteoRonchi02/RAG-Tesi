@@ -231,7 +231,8 @@ SMELL_INSTRUCTIONS = {
 
     Based on your analysis, list the names of all services that are exposed directly, which constitute the smell. If the smell is not present, return an empty list `[]`.
     """,
-    "shared persistence": """Your analysis for the 'Shared Persistence' smell must be precise. """  ,
+
+    "shared persistence": """Your task is to identify the 'Shared Persistence' smell. This smell occurs when multiple microservices directly access the same physical database instance or schema, creating tight coupling. """  ,
 
     "endpoint based service interaction": """Your task is to identify services that are called using static, hardcoded endpoints, which is a sign of tight coupling. The evidence for this smell is often found in API Gateway configuration files, but the smell itself belongs to the services being called, not the gateway.
     Follow these steps precisely:
@@ -438,7 +439,7 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         "api-gateway-service": []
     }
 
-    ground_truth2 = {
+    ground_truth1 = {
         "booking-service": ["shared persistence", "wobbly service interaction", "endpoint based service interaction"],
         "cinema-catalog-service": ["shared persistence", "endpoint based service interaction"],
         "movies-service": ["shared persistence", "endpoint based service interaction"],
