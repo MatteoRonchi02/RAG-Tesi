@@ -254,7 +254,7 @@ SMELL_INSTRUCTIONS = {
 }
 
 prompt_template_str = """Instructions:
-1. You are an expert Architectural auditor. Your task is to analyze specific code snippets for a given [Smell name] smell.
+1. You are an Architectural software expert. Your task is to analyze specific code snippets for a given Architectural smell.
 2. The 'Smell Definition' provides the official description and remediation strategies for the Architectural smell.
 3. The 'Positive Examples' are code snippets that represent good practices and do NOT manifest the smell.
 4. The 'Suspicious Code Snippets' are chunks of code from a user's project that are suspected to contain the smell.
@@ -272,6 +272,7 @@ prompt_template_str = """Instructions:
    - For each affected snippet, provide:
      a. The line of code or block that contains the smell.
      b. A clear explanation of WHY it is an Architectural smell in this context.
+     c. Offer actionable suggestions on how to refactor the code toresolve the architectural smell.
    - If a snippet is NOT affected by the smell, you don't need to mention it.
    - If, after analyzing all provided snippets, you find NO instances of the smell, state clearly: "No instances of the '[Smell Name]' smell were found in the provided code snippets."
 
@@ -427,16 +428,17 @@ def analyze_services_individually(smell_data, base_folder_path, user_query):
         return
 
     # Evaluation logic
-    #ground_truth = {
-    #    "customers-service": ["endpoint based service interaction"],
-    #    "accounts-service": ["endpoint based service interaction"],
     #    "transactions-service": ["endpoint based service interaction"],
-    #    "customers-view-service": ["shared persistence", "endpoint based service interaction"],
-    #    "accounts-view-service": ["shared persistence", "endpoint based service interaction"],
-    #    "api-gateway-service": []
-    #}
-
     ground_truth = {
+        "customers-service": ["endpoint based service interaction"],
+        "accounts-service": ["endpoint based service interaction"],
+        "transactions-service": ["endpoint based service interaction"],
+        "customers-view-service": ["shared persistence", "endpoint based service interaction"],
+        "accounts-view-service": ["shared persistence", "endpoint based service interaction"],
+        "api-gateway-service": []
+    }
+
+    ground_truth2 = {
         "booking-service": ["shared persistence", "wobbly service interaction", "endpoint based service interaction"],
         "cinema-catalog-service": ["shared persistence", "endpoint based service interaction"],
         "movies-service": ["shared persistence", "endpoint based service interaction"],
